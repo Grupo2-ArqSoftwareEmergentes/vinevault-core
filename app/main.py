@@ -10,9 +10,9 @@ Base.metadata.create_all(bind=engine)
 
 # Inicializar app
 app = FastAPI(
-    title="Microservicio IAM",
+    title="Vinevault Core",
     version=settings.SERVICE_VERSION,
-    description="Servicio de Autenticación y Autorización",
+    description="Backend core de Vinevault",
     docs_url="/docs",
     redoc_url="/redoc",
 )

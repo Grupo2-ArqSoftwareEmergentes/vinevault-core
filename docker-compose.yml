@@ -3,7 +3,7 @@ version: '3.8'
 services:
   db:
     image: postgres:15
-    container_name: iam_db
+    container_name: vinevault_core_db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -20,7 +20,7 @@ services:
 
   app:
     build: .
-    container_name: iam_app
+    container_name: vinevault_core_app
     ports:
       - "8000:8000"
     depends_on:
@@ -32,6 +32,7 @@ services:
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      SERVICE_NAME: ${SERVICE_NAME:-vinevault-core}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     volumes:
       - ./app:/app/app

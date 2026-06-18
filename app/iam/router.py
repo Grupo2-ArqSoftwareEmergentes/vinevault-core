@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
 from . import schemas, crud, auth, dependencies
+from ..core.config import settings
 from ..core.database import get_db
 
 router = APIRouter(prefix="/api/v1/iam", tags=["IAM - Authentication"])
@@ -100,7 +101,12 @@ def get_users(
 
 @router.get(
     "/health",
-    summary="Health check del servicio IAM"
+    summary="Health check del modulo IAM"
 )
 def health_check():
-    return {"status": "healthy", "service": "iam-service", "version": "1.0.0"}
+    return {
+        "status": "healthy",
+        "service": settings.SERVICE_NAME,
+        "module": "iam",
+        "version": settings.SERVICE_VERSION,
+    }
