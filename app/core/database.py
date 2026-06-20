@@ -1,10 +1,28 @@
+import ssl
+from urllib.parse import urlsplit, urlunsplit
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from .config import settings
 
+
+def _build_engine_url() -> str:
+    url = settings.ASYNC_DATABASE_URL
+    parts = urlsplit(url)
+    # asyncpg does not understand psycopg-style query parameters like sslmode.
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
+def _build_connect_args() -> dict:
+    if not settings.DATABASE_SSL:
+        return {}
+    return {"ssl": ssl.create_default_context()}
+
+
 # Usar la propiedad ASYNC_DATABASE_URL
 engine = create_async_engine(
-    settings.ASYNC_DATABASE_URL,
+    _build_engine_url(),
+    connect_args=_build_connect_args(),
     echo=settings.ENVIRONMENT == "development",
     pool_pre_ping=True,
 )
