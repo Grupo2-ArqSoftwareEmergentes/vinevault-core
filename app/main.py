@@ -18,6 +18,7 @@ from .device.interfaces.rest.controllers.device_controller import router as devi
 from .device.interfaces.rest.controllers.organization_controller import router as organization_router
 from .device.interfaces.rest.controllers.space_controller import router as space_router
 from .device.interfaces.rest.controllers.threshold_controller import router as threshold_router
+from .wine_cellar.interfaces.rest.controllers.wine_cellar_controller import router as wine_cellar_router
 
 # Configurar logging
 logging.basicConfig(
@@ -94,6 +95,7 @@ app.include_router(device_router)
 app.include_router(organization_router)
 app.include_router(space_router)
 app.include_router(threshold_router)
+app.include_router(wine_cellar_router)
 
 @app.get("/")
 async def root():

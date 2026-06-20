@@ -1,0 +1,2 @@
+"""Wine cellar REST interface."""
+

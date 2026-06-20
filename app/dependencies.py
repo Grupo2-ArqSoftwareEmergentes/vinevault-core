@@ -18,6 +18,7 @@ from .device.infrastructure.database.repositories import (
     OrganizationRepository,
     SpaceRepository
 )
+from .wine_cellar.infrastructure.database.repositories import WineCellarRepository
 
 # Servicios Device
 from .device.applications.command_handlers import (
@@ -67,6 +68,10 @@ def get_organization_repository(db: AsyncSession = Depends(get_db)) -> Organizat
 
 def get_space_repository(db: AsyncSession = Depends(get_db)) -> SpaceRepository:
     return SpaceRepository(db)
+
+
+def get_wine_cellar_repository(db: AsyncSession = Depends(get_db)) -> WineCellarRepository:
+    return WineCellarRepository(db)
 
 
 def get_device_command_service(
