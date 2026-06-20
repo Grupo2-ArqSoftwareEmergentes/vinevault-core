@@ -4,9 +4,16 @@ from contextlib import asynccontextmanager
 import logging
 
 from .core.config import settings
-from .core.database import init_db, close_db
+from .core.database import init_db, close_db, AsyncSessionLocal
 from .iam import router as iam_router
 from .shared.exceptions import setup_exception_handlers
+from .device.applications.command_handlers import DeviceCommandServiceImpl
+from .device.domain.commands import SeedDevicesCommand
+from .device.infrastructure.database.repositories import (
+    DeviceRepository,
+    DeviceAssignmentRepository,
+    SpaceRepository,
+)
 from .device.interfaces.rest.controllers.device_controller import router as device_router
 from .device.interfaces.rest.controllers.organization_controller import router as organization_router
 from .device.interfaces.rest.controllers.space_controller import router as space_router
@@ -20,6 +27,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def seed_factory_devices() -> None:
+    """Create a minimal set of factory devices for frontend pairing flows."""
+    async with AsyncSessionLocal() as session:
+        service = DeviceCommandServiceImpl(
+            device_repo=DeviceRepository(session),
+            assignment_repo=DeviceAssignmentRepository(session),
+            space_repo=SpaceRepository(session),
+        )
+        seeded = await service.handle_seed_devices(SeedDevicesCommand(count=2))
+        if seeded:
+            logger.info("Seeded %s factory devices", len(seeded))
+        else:
+            logger.info("Factory devices already present, skipping seed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events"""
@@ -28,6 +50,9 @@ async def lifespan(app: FastAPI):
     # Inicializar base de datos
     await init_db()
     logger.info("Database initialized")
+
+    # Seed inicial de devices factory para el flujo de pairing del front
+    await seed_factory_devices()
     
     # Iniciar consumidores Kafka (si existen)
     # await start_consumers()

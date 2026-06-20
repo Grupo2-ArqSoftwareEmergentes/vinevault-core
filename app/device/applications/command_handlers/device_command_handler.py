@@ -100,7 +100,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
             raise PermissionError("Device assignment belongs to another user")
 
         # Claim the device
-            assignment.claim_to_space(command.space_id, UserId(user_id=command.user_id))
+        assignment.claim_to_space(command.space_id, UserId(user_id=command.user_id))
         return await self._assignment_repo.save(assignment)
 
     async def handle_reset_device_assignment(self, command: ResetDeviceAssignmentCommand) -> None:
