@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings(BaseSettings):
-    # Base de datos
+    # Base de datos - Convertir a async si es necesario
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/auth_db")
     
     # JWT
@@ -19,6 +19,20 @@ class Settings(BaseSettings):
     SERVICE_NAME: str = os.getenv("SERVICE_NAME", "vinevault-core")
     SERVICE_VERSION: str = "1.0.0"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    
+    # Kafka (opcional)
+    KAFKA_BOOTSTRAP_SERVERS: str = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+    KAFKA_CONSUMER_GROUP_ID: str = os.getenv("KAFKA_CONSUMER_GROUP_ID", "vinevault-core")
+    
+    # Billing Service (opcional)
+    BILLING_SERVICE_URL: str = os.getenv("BILLING_SERVICE_URL", "http://localhost:8001")
+    
+    @property
+    def ASYNC_DATABASE_URL(self) -> str:
+        """Convertir DATABASE_URL a async (postgresql:// → postgresql+asyncpg://)"""
+        if self.DATABASE_URL.startswith("postgresql://"):
+            return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+        return self.DATABASE_URL
     
     class Config:
         env_file = ".env"

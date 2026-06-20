@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: auth_db
+      POSTGRES_DB: vinevault_core_db
     ports:
       - "5432:5432"
     volumes:
@@ -27,7 +27,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/auth_db
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/vinevault_core_db  # Cambiado de auth_db a vinevault_core_db
       SECRET_KEY: ${SECRET_KEY:-mi_clave_secreta_muy_segura}
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}

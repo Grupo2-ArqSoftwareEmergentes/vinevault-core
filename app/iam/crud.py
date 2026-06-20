@@ -1,19 +1,23 @@
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 from typing import Optional
 from . import models, schemas
 from ..core import security
 
-def get_user_by_username(db: Session, username: str) -> Optional[models.User]:
-    return db.query(models.User).filter(models.User.username == username).first()
+async def get_user_by_username(db: AsyncSession, username: str) -> Optional[models.User]:
+    result = await db.execute(select(models.User).where(models.User.username == username))
+    return result.scalar_one_or_none()
 
-def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
-    return db.query(models.User).filter(models.User.email == email).first()
+async def get_user_by_email(db: AsyncSession, email: str) -> Optional[models.User]:
+    result = await db.execute(select(models.User).where(models.User.email == email))
+    return result.scalar_one_or_none()
 
-def get_user_by_id(db: Session, user_id: int) -> Optional[models.User]:
-    return db.query(models.User).filter(models.User.id == user_id).first()
+async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[models.User]:
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
+    return result.scalar_one_or_none()
 
-def create_user(db: Session, user: schemas.UserCreate) -> models.User:
+async def create_user(db: AsyncSession, user: schemas.UserCreate) -> models.User:
     hashed_password = security.get_password_hash(user.password)
     db_user = models.User(
         username=user.username,
@@ -23,17 +27,18 @@ def create_user(db: Session, user: schemas.UserCreate) -> models.User:
         is_active=True
     )
     db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    await db.commit()
+    await db.refresh(db_user)
     return db_user
 
-def update_last_login(db: Session, user_id: int):
-    user = get_user_by_id(db, user_id)
+async def update_last_login(db: AsyncSession, user_id: int):
+    user = await get_user_by_id(db, user_id)
     if user:
         user.last_login = datetime.utcnow()
-        db.commit()
-        db.refresh(user)
+        await db.commit()
+        await db.refresh(user)
     return user
 
-def get_users(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.User).offset(skip).limit(limit).all()
+async def get_users(db: AsyncSession, skip: int = 0, limit: int = 100):
+    result = await db.execute(select(models.User).offset(skip).limit(limit))
+    return result.scalars().all()
