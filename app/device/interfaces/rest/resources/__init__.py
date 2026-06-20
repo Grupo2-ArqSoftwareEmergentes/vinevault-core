@@ -6,6 +6,7 @@ from .request_models import (
     PairDeviceRequest,
     UpdateDeviceNameRequest,
     UpdateDeviceThresholdRequest,
+    UpdateDeviceThresholdsRequest,
     UpdateOrganizationNameRequest,
     UpdateSpaceNameRequest,
 )

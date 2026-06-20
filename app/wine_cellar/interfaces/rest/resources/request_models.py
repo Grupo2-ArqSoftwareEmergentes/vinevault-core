@@ -1,17 +1,12 @@
-from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class CreateWineCellarRequest(BaseModel):
     name: str = Field(..., min_length=1)
     description: Optional[str] = None
-    temperature_min: Decimal = Field(...)
-    temperature_max: Decimal = Field(...)
-    humidity_min: Decimal = Field(...)
-    humidity_max: Decimal = Field(...)
 
     @field_validator("name")
     @classmethod
@@ -28,14 +23,6 @@ class CreateWineCellarRequest(BaseModel):
         value = value.strip()
         return value or None
 
-    @model_validator(mode="after")
-    def validate_ranges(self) -> "CreateWineCellarRequest":
-        if self.temperature_min > self.temperature_max:
-            raise ValueError("Temperature minimum must be less than or equal to temperature maximum")
-        if self.humidity_min > self.humidity_max:
-            raise ValueError("Humidity minimum must be less than or equal to humidity maximum")
-        return self
-
 
 class UpdateWineCellarRequest(CreateWineCellarRequest):
     pass
@@ -43,4 +30,3 @@ class UpdateWineCellarRequest(CreateWineCellarRequest):
 
 class LinkWineCellarDeviceRequest(BaseModel):
     device_id: UUID
-

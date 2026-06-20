@@ -73,6 +73,7 @@ class UpdateSpaceNameRequest(BaseModel):
 # update_device_threshold_request.py
 from pydantic import BaseModel, Field
 from decimal import Decimal
+from typing import List
 from app.device.domain.models.value_objects import MetricThreshold
 
 
@@ -80,6 +81,10 @@ class UpdateDeviceThresholdRequest(BaseModel):
     metric: MetricThreshold
     value: Decimal = Field(..., decimal_places=2, gt=0)
     enabled: bool = True
+
+
+class UpdateDeviceThresholdsRequest(BaseModel):
+    thresholds: List[UpdateDeviceThresholdRequest] = Field(default_factory=list)
 
 
 # create_device_command_request.py

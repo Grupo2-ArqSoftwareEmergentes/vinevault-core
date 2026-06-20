@@ -36,17 +36,19 @@ class DeviceResponse(BaseModel):
         
         for metric in MetricThreshold:
             config_json = assignment.find_configuration_value(f"threshold.{metric.value}")
-            if config_json:
-                try:
+            try:
+                if config_json:
                     data = json.loads(config_json)
                     config = DeviceMetricThresholdConfiguration(
                         metric=metric,
                         value=Decimal(str(data["value"])),
                         enabled=data.get("enabled", True)
                     )
-                    thresholds.append(DeviceThresholdResponse.from_config(config, device.id))
-                except:
-                    pass
+                else:
+                    config = DeviceMetricThresholdConfiguration.default_for(metric)
+                thresholds.append(DeviceThresholdResponse.from_config(config, device.id))
+            except:
+                pass
 
         return cls(
             id=device.id,

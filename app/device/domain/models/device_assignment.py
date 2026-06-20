@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from .device import Device
-from .value_objects import ClaimToken, DeviceStatus, UserId
+from .value_objects import ClaimToken, DeviceStatus, UserId, MetricThreshold, DeviceMetricThresholdConfiguration
 
 
 class DeviceAssignment(BaseModel):
@@ -31,6 +31,7 @@ class DeviceAssignment(BaseModel):
         self.owner_user_id = user_id
         self.space_id = space_id
         self.claim_token = None
+        self._ensure_default_thresholds()
         if self.activated_at is None:
             self.activated_at = datetime.utcnow()
 
@@ -70,6 +71,16 @@ class DeviceAssignment(BaseModel):
         if not key or not key.strip():
             raise ValueError("Configuration key must not be blank")
         self.configuration.pop(key, None)
+
+    def _ensure_default_thresholds(self) -> None:
+        for metric in MetricThreshold:
+            key = f"threshold.{metric.value}"
+            if key not in self.configuration:
+                default_config = DeviceMetricThresholdConfiguration.default_for(metric)
+                self.configuration[key] = default_config.model_dump_json()
+
+    def ensure_default_thresholds(self) -> None:
+        self._ensure_default_thresholds()
 
 
 class IllegalStateError(Exception):

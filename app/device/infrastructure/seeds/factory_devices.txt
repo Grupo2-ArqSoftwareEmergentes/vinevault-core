@@ -1,0 +1,5 @@
+SN-0001|Sensor 1|Sensor 1|VINE-A001|air-quality-v1
+SN-0002|Sensor 2|Sensor 2|VINE-A002|air-quality-v1
+SN-0003|Sensor 3|Sensor 3|VINE-A003|air-quality-v1
+SN-0004|Sensor 4|Sensor 4|VINE-A004|air-quality-v1
+SN-0005|Sensor 5|Sensor 5|VINE-A005|air-quality-v1

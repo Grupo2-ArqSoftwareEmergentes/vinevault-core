@@ -27,7 +27,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
 
     async def handle_seed_devices(self, command: SeedDevicesCommand) -> List[Device]:
         expected_serial_numbers = [
-            f"SN-{i:04d}" for i in range(1, command.count + 1)
+            f"SN-{i:04d}" for i in range(command.start_index, command.start_index + command.count)
         ]
 
         # Find existing devices
@@ -61,7 +61,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         for _ in range(50):
             suffix = ''.join(secrets.choice(alphabet) for _ in range(4))
-            candidate = f"CLAIR-{suffix}"
+            candidate = f"VINE-{suffix}"
             if not await self._device_repo.exists_by_hardware_id(candidate):
                 return candidate
         raise RuntimeError("Unable to generate a unique hardware id after multiple attempts")
@@ -81,6 +81,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
             device=device,
             claim_token=ClaimToken.generate()
         )
+        assignment.ensure_default_thresholds()
         return await self._assignment_repo.save(assignment)
 
     async def handle_claim_device(self, command: ClaimDeviceCommand) -> DeviceAssignment:

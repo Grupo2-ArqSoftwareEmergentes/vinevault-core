@@ -17,3 +17,7 @@ class DeviceMetricThresholdConfiguration(BaseModel):
         if v < 0:
             raise ValueError("Value must not be negative")
         return v
+
+    @classmethod
+    def default_for(cls, metric: MetricThreshold) -> "DeviceMetricThresholdConfiguration":
+        return cls(metric=metric, value=metric.default_value(), enabled=True)

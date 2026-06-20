@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
 
 from .core.config import settings
 from .core.database import init_db, close_db, AsyncSessionLocal
@@ -9,6 +10,8 @@ from .iam import router as iam_router
 from .shared.exceptions import setup_exception_handlers
 from .device.applications.command_handlers import DeviceCommandServiceImpl
 from .device.domain.commands import SeedDevicesCommand
+from .device.domain.models import Device
+from .device.domain.models.value_objects import ApiKey, DeviceType, HardwareId
 from .device.infrastructure.database.repositories import (
     DeviceRepository,
     DeviceAssignmentRepository,
@@ -26,6 +29,42 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+FACTORY_DEVICES_FILE = Path(__file__).resolve().parent / "device" / "infrastructure" / "seeds" / "factory_devices.txt"
+
+
+async def seed_fixed_factory_devices() -> None:
+    """Seed the 5 fixed devices used as stable factory inventory."""
+    if not FACTORY_DEVICES_FILE.exists():
+        logger.warning("Fixed factory devices file not found: %s", FACTORY_DEVICES_FILE)
+        return
+
+    async with AsyncSessionLocal() as session:
+        device_repo = DeviceRepository(session)
+        seeded = 0
+        for raw_line in FACTORY_DEVICES_FILE.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            serial_number, name, factory_name, hardware_id, device_type = [part.strip() for part in line.split("|")]
+            if await device_repo.find_by_serial_number(serial_number):
+                continue
+
+            device = Device(
+                serial_number=serial_number,
+                name=name,
+                factory_name=factory_name,
+                hardware_id=HardwareId(value=hardware_id),
+                api_key=ApiKey.generate(),
+                device_type=DeviceType(value=device_type),
+            )
+            await device_repo.save(device)
+            seeded += 1
+
+        if seeded:
+            logger.info("Seeded %s fixed factory devices", seeded)
+        else:
+            logger.info("Fixed factory devices already present, skipping seed")
 
 
 async def seed_factory_devices() -> None:
@@ -36,7 +75,7 @@ async def seed_factory_devices() -> None:
             assignment_repo=DeviceAssignmentRepository(session),
             space_repo=SpaceRepository(session),
         )
-        seeded = await service.handle_seed_devices(SeedDevicesCommand(count=2))
+        seeded = await service.handle_seed_devices(SeedDevicesCommand(count=2, start_index=6))
         if seeded:
             logger.info("Seeded %s factory devices", len(seeded))
         else:
@@ -53,6 +92,7 @@ async def lifespan(app: FastAPI):
     logger.info("Database initialized")
 
     # Seed inicial de devices factory para el flujo de pairing del front
+    await seed_fixed_factory_devices()
     await seed_factory_devices()
     
     # Iniciar consumidores Kafka (si existen)

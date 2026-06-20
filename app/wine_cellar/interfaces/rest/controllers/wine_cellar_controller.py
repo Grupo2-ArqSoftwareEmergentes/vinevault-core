@@ -64,10 +64,6 @@ async def create_wine_cellar(
         space_id=space_id,
         name=request.name,
         description=request.description,
-        temperature_min=request.temperature_min,
-        temperature_max=request.temperature_max,
-        humidity_min=request.humidity_min,
-        humidity_max=request.humidity_max,
     )
     saved = await wine_cellar_repo.save(wine_cellar)
     return WineCellarResponse.from_domain(saved)
@@ -82,14 +78,7 @@ async def update_wine_cellar(
     space_repo = Depends(get_space_repository),
 ) -> WineCellarResponse:
     wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
-    wine_cellar.update(
-        name=request.name,
-        description=request.description,
-        temperature_min=request.temperature_min,
-        temperature_max=request.temperature_max,
-        humidity_min=request.humidity_min,
-        humidity_max=request.humidity_max,
-    )
+    wine_cellar.update(name=request.name, description=request.description)
     saved = await wine_cellar_repo.save(wine_cellar)
     return WineCellarResponse.from_domain(saved)
 

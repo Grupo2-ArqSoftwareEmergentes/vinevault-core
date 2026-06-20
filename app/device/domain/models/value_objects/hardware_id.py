@@ -11,7 +11,7 @@ class HardwareId(BaseModel):
         if not v or not v.strip():
             raise ValueError("Hardware ID must not be null or blank")
         
-        # Supported formats: CLAIR-0KBG or HW-0001
-        if not re.match(r'^(CLAIR-[0-9A-Z]{4}|HW-\d{4})$', v):
-            raise ValueError("Hardware ID must match CLAIR-0KBG or HW-0001")
+        # Supported format: VINE-0KBG
+        if not re.match(r'^(VINE-[0-9A-Z]{4}|HW-\d{4})$', v):
+            raise ValueError("Hardware ID must match VINE-0KBG or HW-0001")
         return v

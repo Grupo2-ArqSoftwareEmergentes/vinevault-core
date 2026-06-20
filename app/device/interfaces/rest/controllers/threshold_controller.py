@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import get_current_user_id, get_device_assignment_repository
 from app.device.domain.models.value_objects import MetricThreshold, DeviceMetricThresholdConfiguration
-from ..resources import DeviceThresholdResponse, UpdateDeviceThresholdRequest
+from ..resources import DeviceThresholdResponse, UpdateDeviceThresholdRequest, UpdateDeviceThresholdsRequest
 
 
 router = APIRouter(prefix="/api/v1/devices/{device_id}/thresholds", tags=["Device Thresholds"])
@@ -16,7 +16,8 @@ router = APIRouter(prefix="/api/v1/devices/{device_id}/thresholds", tags=["Devic
 def _build_threshold_response(assignment, metric: MetricThreshold) -> DeviceThresholdResponse | None:
     config_json = assignment.find_configuration_value(f"threshold.{metric.value}")
     if not config_json:
-        return None
+        config = DeviceMetricThresholdConfiguration.default_for(metric)
+        return DeviceThresholdResponse.from_config(config, assignment.device.id)
     try:
         data = json.loads(config_json)
         config = DeviceMetricThresholdConfiguration(
@@ -47,6 +48,53 @@ async def list_thresholds(
         if threshold:
             thresholds.append(threshold)
     return thresholds
+
+
+@router.put("")
+async def replace_thresholds(
+    device_id: UUID,
+    request: UpdateDeviceThresholdsRequest,
+    user_id: int = Depends(get_current_user_id),
+    assignment_repo = Depends(get_device_assignment_repository),
+) -> List[DeviceThresholdResponse]:
+    assignment = await assignment_repo.find_by_device_id(device_id)
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
+
+    if len(request.thresholds) != len(MetricThreshold):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Exactly 4 thresholds are required",
+        )
+
+    seen_metrics = set()
+    for threshold_request in request.thresholds:
+        if threshold_request.metric in seen_metrics:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Duplicate threshold metric")
+        seen_metrics.add(threshold_request.metric)
+
+    expected_metrics = set(MetricThreshold)
+    if seen_metrics != expected_metrics:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Threshold metrics must include temperature_min, temperature_max, humidity_min and humidity_max",
+        )
+
+    for threshold_request in request.thresholds:
+        config = DeviceMetricThresholdConfiguration(
+            metric=threshold_request.metric,
+            value=threshold_request.value,
+            enabled=threshold_request.enabled,
+        )
+        assignment.put_configuration_value(
+            f"threshold.{threshold_request.metric.value}",
+            json.dumps({"value": str(config.value), "enabled": config.enabled}),
+        )
+
+    await assignment_repo.save(assignment)
+    return [_build_threshold_response(assignment, metric) for metric in MetricThreshold]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
