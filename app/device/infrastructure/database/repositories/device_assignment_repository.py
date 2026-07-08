@@ -50,6 +50,17 @@ class DeviceAssignmentRepository:
         orms = result.scalars().all()
         return [orm.to_domain() for orm in orms], total or 0
 
+    async def find_all_by_device_ids(self, device_ids: List[UUID]) -> List[DeviceAssignment]:
+        if not device_ids:
+            return []
+
+        stmt = select(DeviceAssignmentORM).where(
+            DeviceAssignmentORM.device_id.in_(device_ids)
+        ).options(selectinload(DeviceAssignmentORM.device))
+        result = await self._session.execute(stmt)
+        orms = result.scalars().all()
+        return [orm.to_domain() for orm in orms]
+
     async def exists_by_space_id(self, space_id: UUID) -> bool:
         stmt = select(func.count()).select_from(DeviceAssignmentORM).where(
             DeviceAssignmentORM.space_id == space_id

@@ -1,7 +1,7 @@
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, func
 
 from ..models.device_orm import DeviceORM
 from app.device.domain.models import Device
@@ -34,6 +34,16 @@ class DeviceRepository:
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
         return orm.to_domain() if orm else None
+
+    async def find_all(self, page: int = 0, size: int = 20) -> Tuple[List[Device], int]:
+        offset = page * size
+        count_stmt = select(func.count()).select_from(DeviceORM)
+        total = await self._session.scalar(count_stmt)
+
+        stmt = select(DeviceORM).order_by(DeviceORM.created_at.desc()).offset(offset).limit(size)
+        result = await self._session.execute(stmt)
+        orms = result.scalars().all()
+        return [orm.to_domain() for orm in orms], total or 0
 
     async def find_all_by_serial_numbers(self, serial_numbers: List[str]) -> List[Device]:
         stmt = select(DeviceORM).where(DeviceORM.serial_number.in_(serial_numbers))

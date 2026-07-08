@@ -12,7 +12,8 @@ pydantic-settings==2.6.0
 email-validator==2.1.0
 python-multipart==0.0.20
 # Dependencias para Device (opcional)
-aiokafka==0.8.0
+aiokafka==0.14.0
+kafka-python==3.0.4
 httpx==0.28.1
 tenacity==9.0.0
 structlog==24.4.0

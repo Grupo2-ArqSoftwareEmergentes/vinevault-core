@@ -2,19 +2,19 @@
 Dependencias globales de la aplicación.
 """
 from typing import Dict, Any
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.database import get_db
 from .core.security import decode_token
-from .core.config import settings
 
 # Repositorios Device
 from .device.infrastructure.database.repositories import (
     DeviceRepository,
     DeviceAssignmentRepository,
     DeviceCommandRepository,
+    EdgeDeviceRepository,
     OrganizationRepository,
     SpaceRepository
 )
@@ -36,6 +36,7 @@ from .device.applications.query_handlers import (
     DeviceCommandQueryServiceImpl
 )
 from .device.applications.acl import DeviceContextFacadeImpl, ThresholdContextFacadeImpl
+from .device.domain.models import Device, EdgeDevice
 from .device.interfaces.acl import DeviceContextFacade, ThresholdContextFacade
 
 
@@ -58,6 +59,10 @@ def get_device_assignment_repository(db: AsyncSession = Depends(get_db)) -> Devi
     return DeviceAssignmentRepository(db)
 
 
+def get_edge_device_repository(db: AsyncSession = Depends(get_db)) -> EdgeDeviceRepository:
+    return EdgeDeviceRepository(db)
+
+
 def get_device_command_repository(db: AsyncSession = Depends(get_db)) -> DeviceCommandRepository:
     return DeviceCommandRepository(db)
 
@@ -75,14 +80,19 @@ def get_wine_cellar_repository(db: AsyncSession = Depends(get_db)) -> WineCellar
 
 
 def get_device_command_service(
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> DeviceCommandServiceImpl:
     """Obtener servicio de comandos de Device"""
     repos = get_device_repositories(db)
+    device_event_publisher = None
+    if request is not None:
+        device_event_publisher = getattr(request.app.state, "device_event_publisher", None)
     return DeviceCommandServiceImpl(
         device_repo=repos["device"],
         assignment_repo=repos["assignment"],
         space_repo=repos["space"],
+        device_event_publisher=device_event_publisher,
     )
 
 
@@ -201,6 +211,35 @@ def get_current_user_id_optional(
     except Exception:
         pass
     return None
+
+
+async def get_current_edge_device(
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False)),
+    edge_device_repo: EdgeDeviceRepository = Depends(get_edge_device_repository),
+) -> EdgeDevice:
+    """
+    Authenticate an edge caller using its own API key.
+    """
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing edge credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    edge_device = await edge_device_repo.find_by_api_key(credentials.credentials)
+    if edge_device is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid edge credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not edge_device.active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Edge device is disabled",
+        )
+    return edge_device
 
 
 def get_device_context_facade(

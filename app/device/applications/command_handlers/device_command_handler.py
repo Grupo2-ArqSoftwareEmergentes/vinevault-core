@@ -3,7 +3,7 @@ from uuid import UUID
 import secrets
 
 from app.device.domain.models import Device, DeviceAssignment
-from app.device.domain.models.value_objects import HardwareId, ApiKey, DeviceType, ClaimToken, UserId
+from app.device.domain.models.value_objects import HardwareId, ApiKey, DeviceType, ClaimToken, UserId, DeviceStatus
 from app.device.domain.commands import (
     ClaimDeviceCommand, PairDeviceCommand, ResetDeviceAssignmentCommand,
     SeedDevicesCommand, UpdateDeviceNameCommand
@@ -12,6 +12,7 @@ from app.device.domain.services import DeviceCommandService
 from app.device.infrastructure.database.repositories import (
     DeviceRepository, DeviceAssignmentRepository, SpaceRepository
 )
+from app.device.infrastructure.kafka import KafkaDeviceEventPublisher
 
 
 class DeviceCommandServiceImpl(DeviceCommandService):
@@ -20,10 +21,12 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         device_repo: DeviceRepository,
         assignment_repo: DeviceAssignmentRepository,
         space_repo: SpaceRepository,
+        device_event_publisher: KafkaDeviceEventPublisher | None = None,
     ):
         self._device_repo = device_repo
         self._assignment_repo = assignment_repo
         self._space_repo = space_repo
+        self._device_event_publisher = device_event_publisher
 
     async def handle_seed_devices(self, command: SeedDevicesCommand) -> List[Device]:
         expected_serial_numbers = [
@@ -53,6 +56,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
                 device_type=DeviceType(value="air-quality-v1")
             )
             saved = await self._device_repo.save(device)
+            await self._publish_device_changed(saved, status=DeviceStatus.OFFLINE)
             seeded.append(saved)
 
         return seeded
@@ -82,7 +86,9 @@ class DeviceCommandServiceImpl(DeviceCommandService):
             claim_token=ClaimToken.generate()
         )
         assignment.ensure_default_thresholds()
-        return await self._assignment_repo.save(assignment)
+        saved = await self._assignment_repo.save(assignment)
+        await self._publish_assignment_changed(saved)
+        return saved
 
     async def handle_claim_device(self, command: ClaimDeviceCommand) -> DeviceAssignment:
         # Validate space ownership
@@ -102,7 +108,9 @@ class DeviceCommandServiceImpl(DeviceCommandService):
 
         # Claim the device
         assignment.claim_to_space(command.space_id, UserId(user_id=command.user_id))
-        return await self._assignment_repo.save(assignment)
+        saved = await self._assignment_repo.save(assignment)
+        await self._publish_assignment_changed(saved)
+        return saved
 
     async def handle_reset_device_assignment(self, command: ResetDeviceAssignmentCommand) -> None:
         assignment = await self._assignment_repo.find_by_device_id(command.device_id)
@@ -115,10 +123,11 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         # Reset device name to factory default
         device = assignment.device
         device.reset_name_to_factory_default()
-        await self._device_repo.save(device)
+        saved_device = await self._device_repo.save(device)
 
         # Delete assignment
         await self._assignment_repo.delete(assignment)
+        await self._publish_device_changed(saved_device, status=DeviceStatus.DECOMMISSIONED)
 
     async def handle_update_device_name(self, command: UpdateDeviceNameCommand) -> None:
         assignment = await self._assignment_repo.find_by_device_id(command.device_id)
@@ -130,7 +139,8 @@ class DeviceCommandServiceImpl(DeviceCommandService):
 
         device = assignment.device
         device.update_name(command.name)
-        await self._device_repo.save(device)
+        saved = await self._device_repo.save(device)
+        await self._publish_assignment_changed(saved=assignment, device_override=saved)
 
     async def find_by_id(self, device_id: UUID) -> Optional[Device]:
         return await self._device_repo.find_by_id(device_id)
@@ -140,6 +150,35 @@ class DeviceCommandServiceImpl(DeviceCommandService):
 
     async def find_by_api_key(self, api_key: str) -> Optional[Device]:
         return await self._device_repo.find_by_api_key(api_key)
+
+    async def _publish_device_changed(
+        self,
+        device: Device,
+        *,
+        status: DeviceStatus = DeviceStatus.OFFLINE,
+    ) -> None:
+        if self._device_event_publisher is None:
+            return
+        await self._device_event_publisher.publish_device_changed(device, status=status)
+
+    async def _publish_assignment_changed(
+        self,
+        saved: DeviceAssignment,
+        *,
+        device_override: Device | None = None,
+        status_override: DeviceStatus | None = None,
+    ) -> None:
+        if self._device_event_publisher is None:
+            return
+
+        assignment = saved
+        if device_override is not None:
+            assignment = saved.model_copy(update={"device": device_override})
+
+        await self._device_event_publisher.publish_assignment_changed(
+            assignment,
+            status_override=status_override,
+        )
 
 
 class IllegalStateError(Exception):

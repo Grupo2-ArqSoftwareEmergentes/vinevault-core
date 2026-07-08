@@ -18,3 +18,5 @@ from .organization_response import OrganizationResponse
 from .device_status_response import DeviceStatusResponse
 from .device_threshold_response import DeviceThresholdResponse
 from .space_response import SpaceResponse
+from .edge_device_response import EdgeDeviceResponse
+from .edge_device_list_response import EdgeDeviceListResponse

@@ -9,14 +9,17 @@ from .core.config import settings
 from .core.database import AsyncSessionLocal, close_db, init_db
 from .device.applications.command_handlers import DeviceCommandServiceImpl
 from .device.domain.commands import SeedDevicesCommand
-from .device.domain.models import Device
+from .device.domain.models import Device, EdgeDevice
 from .device.domain.models.value_objects import ApiKey, DeviceType, HardwareId
 from .device.infrastructure.database.repositories import (
     DeviceAssignmentRepository,
     DeviceRepository,
+    EdgeDeviceRepository,
     SpaceRepository,
 )
+from .device.infrastructure.kafka import KafkaDeviceEventPublisher
 from .device.interfaces.rest.controllers.device_controller import router as device_router
+from .device.interfaces.rest.controllers.edge_controller import router as edge_router
 from .device.interfaces.rest.controllers.organization_controller import router as organization_router
 from .device.interfaces.rest.controllers.space_controller import router as space_router
 from .device.interfaces.rest.controllers.threshold_controller import router as threshold_router
@@ -32,9 +35,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 FACTORY_DEVICES_FILE = Path(__file__).resolve().parent / "device" / "infrastructure" / "seeds" / "factory_devices.txt"
+EDGE_DEVICE_SEEDS = (
+    {"name": "edge-lab-1", "api_key": "edge-test-key-001"},
+    {"name": "edge-lab-2", "api_key": "edge-test-key-002"},
+)
 
 
-async def seed_fixed_factory_devices() -> None:
+async def seed_fixed_factory_devices(
+    device_event_publisher: KafkaDeviceEventPublisher | None = None,
+) -> None:
     """Seed the 5 fixed devices used as stable factory inventory."""
     if not FACTORY_DEVICES_FILE.exists():
         logger.warning("Fixed factory devices file not found: %s", FACTORY_DEVICES_FILE)
@@ -60,7 +69,9 @@ async def seed_fixed_factory_devices() -> None:
                 api_key=ApiKey.generate(),
                 device_type=DeviceType(value=device_type),
             )
-            await device_repo.save(device)
+            saved = await device_repo.save(device)
+            if device_event_publisher is not None:
+                await device_event_publisher.publish_device_changed(saved)
             seeded += 1
 
         if seeded:
@@ -69,13 +80,16 @@ async def seed_fixed_factory_devices() -> None:
             logger.info("Fixed factory devices already present, skipping seed")
 
 
-async def seed_factory_devices() -> None:
+async def seed_factory_devices(
+    device_event_publisher: KafkaDeviceEventPublisher | None = None,
+) -> None:
     """Create a minimal set of factory devices for frontend pairing flows."""
     async with AsyncSessionLocal() as session:
         service = DeviceCommandServiceImpl(
             device_repo=DeviceRepository(session),
             assignment_repo=DeviceAssignmentRepository(session),
             space_repo=SpaceRepository(session),
+            device_event_publisher=device_event_publisher,
         )
         seeded = await service.handle_seed_devices(SeedDevicesCommand(count=2, start_index=6))
         if seeded:
@@ -84,22 +98,63 @@ async def seed_factory_devices() -> None:
             logger.info("Factory devices already present, skipping seed")
 
 
+async def seed_edge_devices() -> None:
+    """Seed two deterministic edge credentials for development and tests."""
+    async with AsyncSessionLocal() as session:
+        edge_repo = EdgeDeviceRepository(session)
+        desired_names = {seed["name"] for seed in EDGE_DEVICE_SEEDS}
+        existing_edge_devices = await edge_repo.find_all()
+
+        for existing in existing_edge_devices:
+            if existing.name not in desired_names:
+                await edge_repo.delete(existing)
+
+        for seed in EDGE_DEVICE_SEEDS:
+            existing = await edge_repo.find_by_name(seed["name"])
+            if existing is None:
+                await edge_repo.save(
+                    EdgeDevice(
+                        name=seed["name"],
+                        api_key=ApiKey(value=seed["api_key"]),
+                        active=True,
+                    )
+                )
+                logger.info("Seeded edge device %s", seed["name"])
+                continue
+
+            needs_update = existing.api_key.value != seed["api_key"] or not existing.active
+            if needs_update:
+                existing.rotate_api_key(ApiKey(value=seed["api_key"]))
+                existing.active = True
+                await edge_repo.save(existing)
+                logger.info("Updated edge device %s", seed["name"])
+            else:
+                logger.info("Edge device %s already present, skipping seed", seed["name"])
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events."""
     logger.info("Starting up %s...", settings.SERVICE_NAME)
 
-    await init_db()
-    logger.info("Database initialized")
+    device_event_publisher = KafkaDeviceEventPublisher(settings.KAFKA_BOOTSTRAP_SERVERS)
+    await device_event_publisher.start()
+    app.state.device_event_publisher = device_event_publisher
 
-    await seed_fixed_factory_devices()
-    await seed_factory_devices()
+    try:
+        await init_db()
+        logger.info("Database initialized")
 
-    yield
+        await seed_fixed_factory_devices(device_event_publisher)
+        await seed_factory_devices(device_event_publisher)
+        await seed_edge_devices()
 
-    logger.info("Shutting down %s...", settings.SERVICE_NAME)
-    await close_db()
-    logger.info("Shutdown complete")
+        yield
+    finally:
+        logger.info("Shutting down %s...", settings.SERVICE_NAME)
+        await device_event_publisher.stop()
+        await close_db()
+        logger.info("Shutdown complete")
 
 
 app = FastAPI(
@@ -123,6 +178,7 @@ setup_exception_handlers(app)
 
 app.include_router(iam_router.router)
 app.include_router(device_router)
+app.include_router(edge_router)
 app.include_router(organization_router)
 app.include_router(space_router)
 app.include_router(threshold_router)
@@ -138,4 +194,3 @@ async def root():
         "docs": "/docs",
         "health": "/api/v1/iam/health",
     }
-

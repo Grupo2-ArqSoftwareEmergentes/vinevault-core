@@ -1,4 +1,5 @@
 from .device import Device
+from .edge_device import EdgeDevice
 from .device_assignment import DeviceAssignment, IllegalStateError
 from .device_command import DeviceCommand
 from .organization import Organization
