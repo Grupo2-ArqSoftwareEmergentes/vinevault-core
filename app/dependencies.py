@@ -263,3 +263,42 @@ def get_threshold_context_facade(
         threshold_query_service=threshold_query_service,
         assignment_repo=get_device_repositories(db)["assignment"],
     )
+
+
+# -------------------------------------------------------------
+# DEPENDENCIAS DEL MÓDULO INVENTORY INTELLIGENCE (AI)
+# -------------------------------------------------------------
+from .inventory_intelligence.domain.services.gemini_service import GeminiService
+from .inventory_intelligence.infrastructure.gemini.gemini_client import GeminiClientImpl
+from .inventory_intelligence.interfaces.acl import InventoryDataFacade
+from .inventory_intelligence.applications.acl import InventoryDataFacadeImpl
+from .inventory_intelligence.applications.analysis_application_service import AnalysisApplicationService
+
+
+def get_gemini_client() -> GeminiService:
+    """Obtener cliente oficial de Google Gemini 1.5 Flash"""
+    return GeminiClientImpl()
+
+
+def get_inventory_data_facade(
+    db: AsyncSession = Depends(get_db),
+    device_query_service: DeviceQueryServiceImpl = Depends(get_device_query_service),
+) -> InventoryDataFacade:
+    """Obtener facade del Anti-Corruption Layer (ACL) para recolectar datos"""
+    return InventoryDataFacadeImpl(
+        wine_cellar_repo=get_wine_cellar_repository(db),
+        wine_inventory_repo=get_wine_inventory_repository(db),
+        space_repo=get_space_repository(db),
+        device_context_facade=get_device_context_facade(device_query_service),
+    )
+
+
+def get_analysis_application_service(
+    gemini_service: GeminiService = Depends(get_gemini_client),
+    inventory_data_facade: InventoryDataFacade = Depends(get_inventory_data_facade),
+) -> AnalysisApplicationService:
+    """Obtener el caso de uso/servicio de aplicación orquestador de análisis de IA"""
+    return AnalysisApplicationService(
+        gemini_service=gemini_service,
+        inventory_data_facade=inventory_data_facade,
+    )

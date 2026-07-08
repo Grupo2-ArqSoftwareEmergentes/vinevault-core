@@ -30,6 +30,12 @@ class Settings(BaseSettings):
 
     BILLING_SERVICE_URL: str = "http://localhost:8001"
 
+    # Gemini AI
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MAX_OUTPUT_TOKENS: int = 2048
+    GEMINI_TEMPERATURE: float = 0.3
+
     @property
     def ASYNC_DATABASE_URL(self) -> str:
         """Return an async PostgreSQL URL from DATABASE_URL or component parts."""

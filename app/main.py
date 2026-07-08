@@ -26,6 +26,7 @@ from .device.interfaces.rest.controllers.threshold_controller import router as t
 from .iam import router as iam_router
 from .shared.exceptions import setup_exception_handlers
 from .wine_cellar.interfaces.rest.controllers.wine_cellar_controller import router as wine_cellar_router
+from .inventory_intelligence.interfaces.rest.controllers.intelligence_controller import router as intelligence_router
 
 # Configurar logging
 logging.basicConfig(
@@ -183,6 +184,7 @@ app.include_router(organization_router)
 app.include_router(space_router)
 app.include_router(threshold_router)
 app.include_router(wine_cellar_router)
+app.include_router(intelligence_router)
 
 
 @app.get("/")
