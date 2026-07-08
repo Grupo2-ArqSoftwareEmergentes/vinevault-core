@@ -5,6 +5,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.wine_cellar.domain.models import WineCellar
+from .wine_inventory_repository import WineInventoryRepository
 from ..models.wine_cellar_orm import WineCellarORM
 
 
@@ -39,6 +40,6 @@ class WineCellarRepository:
         return persisted.to_domain()
 
     async def delete(self, wine_cellar_id: UUID) -> None:
+        await WineInventoryRepository(self._session).delete_by_wine_cellar_id(wine_cellar_id)
         await self._session.execute(delete(WineCellarORM).where(WineCellarORM.id == wine_cellar_id))
         await self._session.commit()
-

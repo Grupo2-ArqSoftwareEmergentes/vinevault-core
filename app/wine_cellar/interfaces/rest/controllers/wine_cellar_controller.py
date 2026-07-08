@@ -8,13 +8,17 @@ from app.dependencies import (
     get_device_assignment_repository,
     get_space_repository,
     get_wine_cellar_repository,
+    get_wine_inventory_repository,
 )
 from app.wine_cellar.domain.models import WineCellar
 from ..resources import (
     CreateWineCellarRequest,
+    CreateWineInventoryItemRequest,
     LinkWineCellarDeviceRequest,
+    UpdateWineInventoryItemRequest,
     UpdateWineCellarRequest,
     WineCellarResponse,
+    WineInventoryItemResponse,
 )
 
 
@@ -36,6 +40,14 @@ async def _get_wine_cellar_for_user(wine_cellar_id: UUID, user_id: int, wine_cel
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wine cellar not found")
     await _get_space_for_user(wine_cellar.space_id, user_id, space_repo)
     return wine_cellar
+
+
+async def _get_wine_inventory_item_for_user(wine_cellar_id: UUID, inventory_item_id: UUID, user_id: int, wine_cellar_repo, space_repo, inventory_repo):
+    wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
+    inventory_item = await inventory_repo.find_by_id(inventory_item_id)
+    if not inventory_item or inventory_item.wine_cellar_id != wine_cellar.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wine inventory item not found")
+    return wine_cellar, inventory_item
 
 
 @router.get("/spaces/{space_id}/wine-cellars")
@@ -138,3 +150,77 @@ async def unlink_device_from_wine_cellar(
 
     wine_cellar.unlink_device()
     await wine_cellar_repo.save(wine_cellar)
+
+
+@router.get("/wine-cellars/{wine_cellar_id}/inventory")
+async def list_wine_inventory(
+    wine_cellar_id: UUID,
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+    inventory_repo = Depends(get_wine_inventory_repository),
+) -> List[WineInventoryItemResponse]:
+    wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
+    items = await inventory_repo.find_all_by_wine_cellar_id(wine_cellar.id)
+    return [WineInventoryItemResponse.from_domain(item) for item in items]
+
+
+@router.post("/wine-cellars/{wine_cellar_id}/inventory", status_code=status.HTTP_201_CREATED)
+async def create_wine_inventory_item(
+    wine_cellar_id: UUID,
+    request: CreateWineInventoryItemRequest,
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+    inventory_repo = Depends(get_wine_inventory_repository),
+) -> WineInventoryItemResponse:
+    wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
+    from app.wine_cellar.domain.models import WineInventoryItem
+
+    inventory_item = WineInventoryItem(
+        wine_cellar_id=wine_cellar.id,
+        wine_name=request.wine_name,
+        wine_type=request.wine_type,
+        age_years=request.age_years,
+        quantity=request.quantity,
+    )
+    saved = await inventory_repo.save(inventory_item)
+    return WineInventoryItemResponse.from_domain(saved)
+
+
+@router.put("/wine-cellars/{wine_cellar_id}/inventory/{inventory_item_id}")
+async def update_wine_inventory_item(
+    wine_cellar_id: UUID,
+    inventory_item_id: UUID,
+    request: UpdateWineInventoryItemRequest,
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+    inventory_repo = Depends(get_wine_inventory_repository),
+) -> WineInventoryItemResponse:
+    _, inventory_item = await _get_wine_inventory_item_for_user(
+        wine_cellar_id, inventory_item_id, user_id, wine_cellar_repo, space_repo, inventory_repo
+    )
+    inventory_item.update(
+        wine_name=request.wine_name,
+        wine_type=request.wine_type,
+        age_years=request.age_years,
+        quantity=request.quantity,
+    )
+    saved = await inventory_repo.save(inventory_item)
+    return WineInventoryItemResponse.from_domain(saved)
+
+
+@router.delete("/wine-cellars/{wine_cellar_id}/inventory/{inventory_item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_wine_inventory_item(
+    wine_cellar_id: UUID,
+    inventory_item_id: UUID,
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+    inventory_repo = Depends(get_wine_inventory_repository),
+):
+    await _get_wine_inventory_item_for_user(
+        wine_cellar_id, inventory_item_id, user_id, wine_cellar_repo, space_repo, inventory_repo
+    )
+    await inventory_repo.delete(inventory_item_id)

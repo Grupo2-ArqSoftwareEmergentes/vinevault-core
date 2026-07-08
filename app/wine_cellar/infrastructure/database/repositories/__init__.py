@@ -1,2 +1,2 @@
 from .wine_cellar_repository import WineCellarRepository
-
+from .wine_inventory_repository import WineInventoryRepository
