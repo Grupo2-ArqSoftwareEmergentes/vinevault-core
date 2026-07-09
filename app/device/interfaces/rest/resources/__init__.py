@@ -1,10 +1,12 @@
 from .request_models import (
+    AcknowledgeDeviceCommandRequest,
     ClaimDeviceRequest,
     CreateDeviceCommandRequest,
     CreateOrganizationRequest,
     CreateSpaceRequest,
     PairDeviceRequest,
     UpdateDeviceNameRequest,
+    UpdateDevicePresenceStatusRequest,
     UpdateDeviceThresholdRequest,
     UpdateDeviceThresholdsRequest,
     UpdateOrganizationNameRequest,
@@ -17,6 +19,7 @@ from .device_response import DeviceResponse
 from .organization_response import OrganizationResponse
 from .device_status_response import DeviceStatusResponse
 from .device_threshold_response import DeviceThresholdResponse
+from .alert_incident_response import AlertIncidentResponse
 from .space_response import SpaceResponse
 from .edge_device_response import EdgeDeviceResponse
 from .edge_device_list_response import EdgeDeviceListResponse

@@ -24,6 +24,12 @@ class SpaceRepository:
         orms = result.scalars().all()
         return [orm.to_domain() for orm in orms]
 
+    async def find_all_by_owner_user_id(self, user_id: int) -> List[Space]:
+        stmt = select(SpaceORM).where(SpaceORM.owner_user_id == str(user_id)).order_by(SpaceORM.created_at.desc())
+        result = await self._session.execute(stmt)
+        orms = result.scalars().all()
+        return [orm.to_domain() for orm in orms]
+
     async def save(self, space: Space) -> Space:
         orm = await self._session.merge(SpaceORM.from_domain(space))
         await self._session.flush()

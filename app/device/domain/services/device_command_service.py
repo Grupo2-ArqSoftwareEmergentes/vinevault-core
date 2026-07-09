@@ -4,6 +4,7 @@ from uuid import UUID
 
 from ..models import Device, DeviceAssignment
 from ..commands import (
+    AcknowledgeDeviceCommand,
     ClaimDeviceCommand, PairDeviceCommand, ResetDeviceAssignmentCommand,
     SeedDevicesCommand, UpdateDeviceNameCommand
 )
@@ -28,6 +29,10 @@ class DeviceCommandService(ABC):
 
     @abstractmethod
     async def handle_update_device_name(self, command: UpdateDeviceNameCommand) -> None:
+        pass
+
+    @abstractmethod
+    async def handle_acknowledge_device_command(self, command: AcknowledgeDeviceCommand):
         pass
 
     @abstractmethod

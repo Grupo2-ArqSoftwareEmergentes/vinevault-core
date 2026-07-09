@@ -17,13 +17,20 @@ from .device.infrastructure.database.repositories import (
     EdgeDeviceRepository,
     SpaceRepository,
 )
+from .device.infrastructure.database import models as _device_models  # noqa: F401
 from .device.infrastructure.kafka import KafkaDeviceEventPublisher
+from .device.infrastructure.kafka.device_event_consumer import KafkaEdgeEventConsumer
+from .shared.infrastructure.database import models as _shared_models  # noqa: F401
+from .shared.infrastructure.kafka import KafkaOutboxPublisher
 from .device.interfaces.rest.controllers.device_controller import router as device_router
+from .device.interfaces.rest.controllers.alert_controller import router as alert_router
 from .device.interfaces.rest.controllers.edge_controller import router as edge_router
 from .device.interfaces.rest.controllers.organization_controller import router as organization_router
 from .device.interfaces.rest.controllers.space_controller import router as space_router
 from .device.interfaces.rest.controllers.threshold_controller import router as threshold_router
 from .iam import router as iam_router
+from .telemetry.infrastructure.database import models as _telemetry_models  # noqa: F401
+from .telemetry.interfaces.rest.controllers.telemetry_controller import router as telemetry_router
 from .shared.exceptions import setup_exception_handlers
 from .wine_cellar.interfaces.rest.controllers.wine_cellar_controller import router as wine_cellar_router
 from .inventory_intelligence.interfaces.rest.controllers.intelligence_controller import router as intelligence_router
@@ -33,6 +40,12 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("aiokafka").setLevel(logging.WARNING)
+logging.getLogger("aiokafka.consumer").setLevel(logging.WARNING)
+logging.getLogger("aiokafka.producer").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 FACTORY_DEVICES_FILE = Path(__file__).resolve().parent / "device" / "infrastructure" / "seeds" / "factory_devices.txt"
@@ -72,7 +85,7 @@ async def seed_fixed_factory_devices(
             )
             saved = await device_repo.save(device)
             if device_event_publisher is not None:
-                await device_event_publisher.publish_device_changed(saved)
+                await device_event_publisher.publish_device_changed(saved, change_type="CREATED")
             seeded += 1
 
         if seeded:
@@ -139,8 +152,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up %s...", settings.SERVICE_NAME)
 
     device_event_publisher = KafkaDeviceEventPublisher(settings.KAFKA_BOOTSTRAP_SERVERS)
+    device_event_consumer = KafkaEdgeEventConsumer(
+        settings.KAFKA_BOOTSTRAP_SERVERS,
+        group_id=settings.KAFKA_CONSUMER_GROUP_ID,
+        device_event_publisher=device_event_publisher,
+    )
+    outbox_publisher = KafkaOutboxPublisher(device_event_publisher=device_event_publisher)
     await device_event_publisher.start()
     app.state.device_event_publisher = device_event_publisher
+    app.state.device_event_consumer = device_event_consumer
+    app.state.outbox_publisher = outbox_publisher
 
     try:
         await init_db()
@@ -149,10 +170,14 @@ async def lifespan(app: FastAPI):
         await seed_fixed_factory_devices(device_event_publisher)
         await seed_factory_devices(device_event_publisher)
         await seed_edge_devices()
+        await outbox_publisher.start()
+        await device_event_consumer.start()
 
         yield
     finally:
         logger.info("Shutting down %s...", settings.SERVICE_NAME)
+        await device_event_consumer.stop()
+        await outbox_publisher.stop()
         await device_event_publisher.stop()
         await close_db()
         logger.info("Shutdown complete")
@@ -179,10 +204,12 @@ setup_exception_handlers(app)
 
 app.include_router(iam_router.router)
 app.include_router(device_router)
+app.include_router(alert_router)
 app.include_router(edge_router)
 app.include_router(organization_router)
 app.include_router(space_router)
 app.include_router(threshold_router)
+app.include_router(telemetry_router)
 app.include_router(wine_cellar_router)
 app.include_router(intelligence_router)
 

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     CORS_ORIGINS: str = "http://localhost:4200,http://127.0.0.1:4200"
 
+    SQLALCHEMY_ECHO: bool = False
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
     KAFKA_CONSUMER_GROUP_ID: str = "vinevault-core"
 

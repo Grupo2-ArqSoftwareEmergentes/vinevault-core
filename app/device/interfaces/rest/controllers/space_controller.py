@@ -38,6 +38,15 @@ async def list_spaces_by_organization(
     return [SpaceResponse.from_domain(space) for space in spaces]
 
 
+@router.get("/spaces")
+async def list_spaces(
+    user_id: int = Depends(get_current_user_id),
+    space_repo = Depends(get_space_repository),
+) -> List[SpaceResponse]:
+    spaces = await space_repo.find_all_by_owner_user_id(user_id)
+    return [SpaceResponse.from_domain(space) for space in spaces]
+
+
 @router.post("/organizations/{organization_id}/spaces", status_code=status.HTTP_201_CREATED)
 async def create_space(
     organization_id: UUID,
@@ -81,6 +90,20 @@ async def update_space_name(
     space.update_name(request.name)
     saved = await space_repo.save(space)
     return SpaceResponse.from_domain(saved)
+
+
+@router.get("/spaces/{space_id}")
+async def get_space(
+    space_id: UUID,
+    user_id: int = Depends(get_current_user_id),
+    space_repo = Depends(get_space_repository),
+) -> SpaceResponse:
+    space = await space_repo.find_by_id(space_id)
+    if not space:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Space not found")
+    if space.owner_user_id.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space does not belong to user")
+    return SpaceResponse.from_domain(space)
 
 
 @router.delete("/spaces/{space_id}", status_code=status.HTTP_204_NO_CONTENT)
