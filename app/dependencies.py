@@ -350,14 +350,26 @@ def get_threshold_context_facade(
 # DEPENDENCIAS DEL MÓDULO INVENTORY INTELLIGENCE (AI)
 # -------------------------------------------------------------
 from .inventory_intelligence.domain.services.gemini_service import GeminiService
-from .inventory_intelligence.infrastructure.gemini.gemini_client import GeminiClientImpl
 from .inventory_intelligence.interfaces.acl import InventoryDataFacade
 from .inventory_intelligence.applications.acl import InventoryDataFacadeImpl
 from .inventory_intelligence.applications.analysis_application_service import AnalysisApplicationService
 
+try:
+    from .inventory_intelligence.infrastructure.gemini.gemini_client import GeminiClientImpl
+except ModuleNotFoundError:
+    GeminiClientImpl = None
+
 
 def get_gemini_client() -> GeminiService:
     """Obtener cliente oficial de Google Gemini 1.5 Flash"""
+    if GeminiClientImpl is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "The optional dependency 'google-genai' is not installed. "
+                "Install requirements.txt to enable inventory intelligence."
+            ),
+        )
     return GeminiClientImpl()
 
 
