@@ -1,7 +1,9 @@
+from io import BytesIO
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from app.dependencies import (
     get_current_user_id,
@@ -10,11 +12,15 @@ from app.dependencies import (
     get_wine_cellar_repository,
     get_wine_inventory_repository,
 )
+from app.core.database import AsyncSessionLocal
+from app.wine_cellar.applications import InventoryExcelError, WineInventoryExcelService
+from app.wine_cellar.applications.inventory_excel_service import XLSX_MIME_TYPE
 from app.wine_cellar.domain.models import WineCellar
 from ..resources import (
     CreateWineCellarRequest,
     CreateWineInventoryItemRequest,
     LinkWineCellarDeviceRequest,
+    WineInventoryImportResponse,
     UpdateWineInventoryItemRequest,
     UpdateWineCellarRequest,
     WineCellarResponse,
@@ -169,6 +175,84 @@ async def list_wine_inventory(
     wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
     items = await inventory_repo.find_all_by_wine_cellar_id(wine_cellar.id)
     return [WineInventoryItemResponse.from_domain(item) for item in items]
+
+
+@router.get("/wine-cellars/{wine_cellar_id}/inventory/export", summary="Export wine cellar inventory to Excel")
+async def export_wine_inventory(
+    wine_cellar_id: UUID,
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+):
+    wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
+
+    async with AsyncSessionLocal() as session:
+        workbook_bytes = await WineInventoryExcelService().export_inventory(session, wine_cellar.id)
+
+    filename = f"wine-cellar-{wine_cellar.id}-inventory.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        BytesIO(workbook_bytes),
+        media_type=XLSX_MIME_TYPE,
+        headers=headers,
+    )
+
+
+@router.get("/wine-cellars/{wine_cellar_id}/inventory/template", summary="Download inventory import template")
+async def download_wine_inventory_template(
+    wine_cellar_id: UUID,
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+):
+    wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
+
+    workbook_bytes = WineInventoryExcelService().export_template()
+    filename = f"wine-cellar-{wine_cellar.id}-inventory-template.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        BytesIO(workbook_bytes),
+        media_type=XLSX_MIME_TYPE,
+        headers=headers,
+    )
+
+
+@router.post("/wine-cellars/{wine_cellar_id}/inventory/import", summary="Import wine cellar inventory from Excel")
+async def import_wine_inventory(
+    wine_cellar_id: UUID,
+    file: UploadFile = File(...),
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+) -> WineInventoryImportResponse:
+    wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
+
+    filename = file.filename or ""
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded file must be an .xlsx workbook")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded file is empty")
+
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await WineInventoryExcelService().import_inventory(session, wine_cellar.id, file_bytes)
+    except InventoryExcelError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": exc.message,
+                "errors": exc.errors,
+            },
+        ) from exc
+
+    return WineInventoryImportResponse(
+        sheet_name=result.sheet_name,
+        total_rows=result.total_rows,
+        created=result.created,
+        updated=result.updated,
+    )
 
 
 @router.post("/wine-cellars/{wine_cellar_id}/inventory", status_code=status.HTTP_201_CREATED)
