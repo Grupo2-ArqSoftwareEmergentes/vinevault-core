@@ -1,0 +1,1 @@
+from .integration_outbox_repository import IntegrationOutboxRepository

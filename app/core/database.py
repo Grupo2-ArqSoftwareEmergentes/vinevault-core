@@ -23,7 +23,7 @@ def _build_connect_args() -> dict:
 engine = create_async_engine(
     _build_engine_url(),
     connect_args=_build_connect_args(),
-    echo=settings.ENVIRONMENT == "development",
+    echo=settings.SQLALCHEMY_ECHO,
     pool_pre_ping=True,
 )
 

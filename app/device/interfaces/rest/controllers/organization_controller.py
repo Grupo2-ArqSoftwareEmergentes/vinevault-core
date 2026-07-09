@@ -29,6 +29,20 @@ async def list_organizations(
     return [OrganizationResponse.from_domain(org) for org in organizations]
 
 
+@router.get("/{organization_id}")
+async def get_organization(
+    organization_id: UUID,
+    user_id: int = Depends(get_current_user_id),
+    organization_repo = Depends(get_organization_repository),
+) -> OrganizationResponse:
+    organization = await organization_repo.find_by_id(organization_id)
+    if not organization:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    if organization.owner_user_id.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization does not belong to user")
+    return OrganizationResponse.from_domain(organization)
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_organization(
     request: CreateOrganizationRequest,

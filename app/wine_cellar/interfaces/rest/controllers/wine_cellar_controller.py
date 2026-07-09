@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.dependencies import (
     get_current_user_id,
@@ -110,6 +110,7 @@ async def delete_wine_cellar(
 async def link_device_to_wine_cellar(
     wine_cellar_id: UUID,
     request: LinkWineCellarDeviceRequest,
+    http_request: Request,
     user_id: int = Depends(get_current_user_id),
     wine_cellar_repo = Depends(get_wine_cellar_repository),
     space_repo = Depends(get_space_repository),
@@ -133,6 +134,11 @@ async def link_device_to_wine_cellar(
 
     wine_cellar.link_device(request.device_id)
     saved = await wine_cellar_repo.save(wine_cellar)
+
+    device_event_publisher = getattr(http_request.app.state, "device_event_publisher", None)
+    if device_event_publisher is not None:
+        await device_event_publisher.publish_assignment_changed(device_assignment)
+
     return WineCellarResponse.from_domain(saved)
 
 

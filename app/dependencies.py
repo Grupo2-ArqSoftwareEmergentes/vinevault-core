@@ -11,6 +11,7 @@ from .core.security import decode_token
 
 # Repositorios Device
 from .device.infrastructure.database.repositories import (
+    AlertIncidentRepository,
     DeviceRepository,
     DeviceAssignmentRepository,
     DeviceCommandRepository,
@@ -18,11 +19,14 @@ from .device.infrastructure.database.repositories import (
     OrganizationRepository,
     SpaceRepository
 )
+from .shared.infrastructure.database.repositories import IntegrationOutboxRepository
 from .wine_cellar.infrastructure.database.repositories import WineCellarRepository
 from .wine_cellar.infrastructure.database.repositories import WineInventoryRepository
+from .telemetry.infrastructure.database.repositories import TelemetryRepository
 
 # Servicios Device
 from .device.applications.command_handlers import (
+    AlertIncidentServiceImpl,
     DeviceCommandServiceImpl,
     DeviceControlCommandServiceImpl,
     DevicePresenceCommandServiceImpl,
@@ -30,6 +34,7 @@ from .device.applications.command_handlers import (
     OrganizationCommandServiceImpl,
     SpaceCommandServiceImpl
 )
+from .telemetry.applications.command_handlers import TelemetryCommandServiceImpl
 from .device.applications.query_handlers import (
     DeviceQueryServiceImpl,
     DeviceStatusQueryServiceImpl,
@@ -68,6 +73,14 @@ def get_device_command_repository(db: AsyncSession = Depends(get_db)) -> DeviceC
     return DeviceCommandRepository(db)
 
 
+def get_alert_incident_repository(db: AsyncSession = Depends(get_db)) -> AlertIncidentRepository:
+    return AlertIncidentRepository(db)
+
+
+def get_integration_outbox_repository(db: AsyncSession = Depends(get_db)) -> IntegrationOutboxRepository:
+    return IntegrationOutboxRepository(db)
+
+
 def get_organization_repository(db: AsyncSession = Depends(get_db)) -> OrganizationRepository:
     return OrganizationRepository(db)
 
@@ -84,6 +97,10 @@ def get_wine_inventory_repository(db: AsyncSession = Depends(get_db)) -> WineInv
     return WineInventoryRepository(db)
 
 
+def get_telemetry_repository(db: AsyncSession = Depends(get_db)) -> TelemetryRepository:
+    return TelemetryRepository(db)
+
+
 def get_device_command_service(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -97,6 +114,7 @@ def get_device_command_service(
         device_repo=repos["device"],
         assignment_repo=repos["assignment"],
         space_repo=repos["space"],
+        device_command_repo=repos["device_command"],
         device_event_publisher=device_event_publisher,
     )
 
@@ -115,13 +133,34 @@ def get_device_query_service(
 
 
 def get_device_control_command_service(
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> DeviceControlCommandServiceImpl:
     """Obtener servicio de comandos de control de Device"""
     repos = get_device_repositories(db)
+    device_event_publisher = None
+    if request is not None:
+        device_event_publisher = getattr(request.app.state, "device_event_publisher", None)
     return DeviceControlCommandServiceImpl(
         assignment_repo=repos["assignment"],
         device_command_repo=repos["device_command"],
+        device_event_publisher=device_event_publisher,
+    )
+
+
+def get_device_presence_command_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> DevicePresenceCommandServiceImpl:
+    """Obtener servicio de presencia de Device."""
+    repos = get_device_repositories(db)
+    device_event_publisher = None
+    if request is not None:
+        device_event_publisher = getattr(request.app.state, "device_event_publisher", None)
+    return DevicePresenceCommandServiceImpl(
+        device_repo=repos["device"],
+        assignment_repo=repos["assignment"],
+        device_event_publisher=device_event_publisher,
     )
 
 
@@ -166,6 +205,48 @@ def get_space_command_service(
         space_repo=repos["space"],
         organization_repo=repos["organization"],
         assignment_repo=repos["assignment"],
+    )
+
+
+def get_telemetry_command_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> TelemetryCommandServiceImpl:
+    repos = get_device_repositories(db)
+    telemetry_repo = get_telemetry_repository(db)
+    alert_incident_repo = get_alert_incident_repository(db)
+    outbox_repo = get_integration_outbox_repository(db)
+    device_event_publisher = None
+    alert_incident_service = None
+    if request is not None:
+        device_event_publisher = getattr(request.app.state, "device_event_publisher", None)
+        alert_incident_service = getattr(request.app.state, "alert_incident_service", None)
+    if alert_incident_service is None:
+        alert_incident_service = AlertIncidentServiceImpl(
+            assignment_repo=repos["assignment"],
+            alert_incident_repo=alert_incident_repo,
+            outbox_repo=outbox_repo,
+        )
+    return TelemetryCommandServiceImpl(
+        device_repo=repos["device"],
+        assignment_repo=repos["assignment"],
+        telemetry_repo=telemetry_repo,
+        device_event_publisher=device_event_publisher,
+        alert_incident_service=alert_incident_service,
+    )
+
+
+def get_alert_incident_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AlertIncidentServiceImpl:
+    repos = get_device_repositories(db)
+    alert_incident_repo = get_alert_incident_repository(db)
+    outbox_repo = get_integration_outbox_repository(db)
+    return AlertIncidentServiceImpl(
+        assignment_repo=repos["assignment"],
+        alert_incident_repo=alert_incident_repo,
+        outbox_repo=outbox_repo,
     )
 
 

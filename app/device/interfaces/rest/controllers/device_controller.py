@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from typing import List
 from uuid import UUID
 
 from ..resources import (
     PairDeviceRequest, ClaimDeviceRequest, DeviceResponse,
     DevicePairingResource, UpdateDeviceNameRequest, DeviceStatusResponse,
-    DeviceListResponse, CreateDeviceCommandRequest, DeviceCommandResponse
+    DeviceListResponse, CreateDeviceCommandRequest, DeviceCommandResponse,
 )
 from app.device.domain.commands import (
     PairDeviceCommand, ClaimDeviceCommand, ResetDeviceAssignmentCommand,
@@ -21,7 +21,9 @@ from app.dependencies import (
     get_device_assignment_repository,
     get_space_repository,
     get_device_command_repository,
+    get_telemetry_repository,
 )
+from app.telemetry.interfaces.rest.resources import TelemetryRecordResponse
 
 
 router = APIRouter(prefix="/api/v1/devices", tags=["Devices"])
@@ -139,6 +141,7 @@ async def delete_device(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
 
+@router.patch("/{device_id}")
 @router.patch("/{device_id}/name")
 async def update_device_name(
     device_id: UUID,
@@ -155,6 +158,45 @@ async def update_device_name(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+
+@router.get("/{device_id}/commands/latest")
+async def get_latest_device_command(
+    device_id: UUID,
+    user_id: int = Depends(get_current_user_id),
+    assignment_repo = Depends(get_device_assignment_repository),
+    command_repo = Depends(get_device_command_repository),
+) -> DeviceCommandResponse:
+    assignment = await assignment_repo.find_by_device_id(device_id)
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
+
+    commands = await command_repo.find_all_by_device_id(device_id)
+    if not commands:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device command not found")
+    return DeviceCommandResponse.from_domain(commands[0])
+
+
+@router.get("/{device_id}/commands/{command_id}")
+async def get_device_command(
+    device_id: UUID,
+    command_id: UUID,
+    user_id: int = Depends(get_current_user_id),
+    assignment_repo = Depends(get_device_assignment_repository),
+    command_repo = Depends(get_device_command_repository),
+) -> DeviceCommandResponse:
+    assignment = await assignment_repo.find_by_device_id(device_id)
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
+
+    command = await command_repo.find_by_id(command_id)
+    if not command or command.device.id != device_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device command not found")
+    return DeviceCommandResponse.from_domain(command)
 
 
 @router.get("/{device_id}/commands")
@@ -174,10 +216,29 @@ async def list_device_commands(
     return [DeviceCommandResponse.from_domain(command) for command in commands]
 
 
+@router.get("/{device_id}/telemetry")
+async def list_device_telemetry(
+    device_id: UUID,
+    limit: int = Query(50, ge=1, le=500),
+    user_id: int = Depends(get_current_user_id),
+    assignment_repo = Depends(get_device_assignment_repository),
+    telemetry_repo = Depends(get_telemetry_repository),
+) -> List[TelemetryRecordResponse]:
+    assignment = await assignment_repo.find_by_device_id(device_id)
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
+
+    telemetry_records = await telemetry_repo.find_all_by_device_id(device_id)
+    return [TelemetryRecordResponse.from_domain(record) for record in telemetry_records[:limit]]
+
+
 @router.post("/{device_id}/commands", status_code=status.HTTP_201_CREATED)
 async def create_device_command(
     device_id: UUID,
     request: CreateDeviceCommandRequest,
+    http_request: Request,
     user_id: int = Depends(get_current_user_id),
     assignment_repo = Depends(get_device_assignment_repository),
     command_repo = Depends(get_device_command_repository),
@@ -194,4 +255,7 @@ async def create_device_command(
         payload=request.payload,
     )
     saved = await command_repo.save(command)
+    device_event_publisher = getattr(http_request.app.state, "device_event_publisher", None)
+    if device_event_publisher is not None:
+        await device_event_publisher.publish_device_command_pending(saved)
     return DeviceCommandResponse.from_domain(saved)
