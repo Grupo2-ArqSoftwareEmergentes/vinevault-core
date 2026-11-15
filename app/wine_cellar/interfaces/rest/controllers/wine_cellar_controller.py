@@ -2,7 +2,7 @@ from io import BytesIO
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.dependencies import (
@@ -54,6 +54,23 @@ async def _get_wine_inventory_item_for_user(wine_cellar_id: UUID, inventory_item
     if not inventory_item or inventory_item.wine_cellar_id != wine_cellar.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wine inventory item not found")
     return wine_cellar, inventory_item
+
+
+@router.get("/wine-cellars")
+async def list_user_wine_cellars(
+    space_id: UUID | None = None,
+    space_id_camel: UUID | None = Query(default=None, alias="spaceId"),
+    user_id: int = Depends(get_current_user_id),
+    space_repo = Depends(get_space_repository),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+) -> List[WineCellarResponse]:
+    if space_id is not None and space_id_camel is not None and space_id != space_id_camel:
+        raise HTTPException(status_code=422, detail="Conflicting space_id and spaceId")
+    selected_space_id = space_id if space_id is not None else space_id_camel
+    if selected_space_id is not None:
+        await _get_space_for_user(selected_space_id, user_id, space_repo)
+    wine_cellars = await wine_cellar_repo.find_all_by_owner_user_id(user_id, selected_space_id)
+    return [WineCellarResponse.from_domain(cellar) for cellar in wine_cellars]
 
 
 @router.get("/spaces/{space_id}/wine-cellars")

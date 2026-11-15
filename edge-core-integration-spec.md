@@ -16,6 +16,14 @@ La base original venia de otro proyecto similar, pero aqui se ajusta a lo que re
 
 ## 2. Rutas REST que existen hoy
 
+### Contexto personal y navegación directa
+
+- `POST /api/v1/spaces` con `{"name":"Casa"}` permite crear espacios sin seleccionar organización. Reutiliza la organización más antigua del usuario (desempate por ID) o crea `Organización Personal` si no existe, en la misma transacción que el espacio. Conserva el límite de cinco espacios por organización y las rutas anidadas existentes.
+- `GET /api/v1/user/context` devuelve `{"spaces":[{"id":"...","name":"..."}],"wine_cellars":[{"id":"...","name":"...","space_id":"..."}]}` para el selector global. Es de solo lectura, no inicializa datos y usa dos consultas filtradas por el usuario autenticado.
+- `GET /api/v1/wine-cellars` lista las cavas del usuario. Acepta `spaceId` o `space_id` para filtrar por un espacio propio; valores simultáneos distintos producen `422`, un espacio inexistente `404` y uno ajeno `403`.
+- La creación de cavas sigue disponible en `POST /api/v1/spaces/{space_id}/wine-cellars`, sin validación adicional de organización.
+- Estas rutas usan JWT de usuario, no API key del edge. No cambian los contratos Kafka ni las foreign keys.
+
 ### IAM
 
 - `GET /api/v1/iam/health`

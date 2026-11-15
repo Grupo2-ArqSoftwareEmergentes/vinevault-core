@@ -1,16 +1,39 @@
 from typing import Optional, List
 from uuid import UUID
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.device.domain.models import Organization
+from app.device.domain.models.value_objects import UserId
 from ..models.organization_orm import OrganizationORM
 
 
 class OrganizationRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
+
+    async def resolve_personal_organization(self, user_id: int) -> Organization:
+        # Serialize personal-space creation per user until the space save commits.
+        # Keep the organization and its first space in the same transaction.
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(74102, :user_id)"), {"user_id": user_id}
+        )
+        result = await self._session.execute(
+            select(OrganizationORM)
+            .where(OrganizationORM.owner_user_id == str(user_id))
+            .order_by(OrganizationORM.created_at.asc().nulls_last(), OrganizationORM.id)
+            .limit(1)
+        )
+        orm = result.scalar_one_or_none()
+        if orm is None:
+            organization = Organization(
+                name="Organización Personal", owner_user_id=UserId(user_id=user_id)
+            )
+            orm = OrganizationORM.from_domain(organization)
+            self._session.add(orm)
+            await self._session.flush()
+        return orm.to_domain()
 
     async def find_by_id(self, organization_id: UUID) -> Optional[Organization]:
         stmt = select(OrganizationORM).where(OrganizationORM.id == organization_id)

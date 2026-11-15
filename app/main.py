@@ -27,6 +27,7 @@ from .device.interfaces.rest.controllers.alert_controller import router as alert
 from .device.interfaces.rest.controllers.edge_controller import router as edge_router
 from .device.interfaces.rest.controllers.organization_controller import router as organization_router
 from .device.interfaces.rest.controllers.space_controller import router as space_router
+from .device.interfaces.rest.controllers.user_context_controller import router as user_context_router
 from .device.interfaces.rest.controllers.threshold_controller import router as threshold_router
 from .iam import router as iam_router
 from .telemetry.infrastructure.database import models as _telemetry_models  # noqa: F401
@@ -208,6 +209,7 @@ app.include_router(alert_router)
 app.include_router(edge_router)
 app.include_router(organization_router)
 app.include_router(space_router)
+app.include_router(user_context_router)
 app.include_router(threshold_router)
 app.include_router(telemetry_router)
 app.include_router(wine_cellar_router)

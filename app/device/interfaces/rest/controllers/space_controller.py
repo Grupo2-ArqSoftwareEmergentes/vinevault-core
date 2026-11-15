@@ -10,6 +10,7 @@ from app.dependencies import (
     get_device_assignment_repository,
 )
 from app.device.domain.models import Space
+from app.device.applications.personal_space_service import PersonalSpaceService, SpaceLimitReachedError
 from app.device.domain.models.value_objects import UserId
 from ..resources import (
     CreateSpaceRequest,
@@ -71,6 +72,20 @@ async def create_space(
         owner_user_id=UserId(user_id=user_id),
     )
     saved = await space_repo.save(space)
+    return SpaceResponse.from_domain(saved)
+
+
+@router.post("/spaces", status_code=status.HTTP_201_CREATED)
+async def create_personal_space(
+    request: CreateSpaceRequest,
+    user_id: int = Depends(get_current_user_id),
+    organization_repo = Depends(get_organization_repository),
+    space_repo = Depends(get_space_repository),
+) -> SpaceResponse:
+    try:
+        saved = await PersonalSpaceService(organization_repo, space_repo).create(user_id, request.name)
+    except SpaceLimitReachedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return SpaceResponse.from_domain(saved)
 
 

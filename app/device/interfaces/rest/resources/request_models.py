@@ -51,7 +51,14 @@ from pydantic import BaseModel, Field
 
 
 class CreateSpaceRequest(BaseModel):
-    name: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_space_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Space name must not be blank")
+        return value.strip()
 
 
 # update_organization_name_request.py
