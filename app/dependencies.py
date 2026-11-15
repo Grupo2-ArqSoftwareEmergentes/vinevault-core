@@ -89,6 +89,20 @@ def get_space_repository(db: AsyncSession = Depends(get_db)) -> SpaceRepository:
     return SpaceRepository(db)
 
 
+def get_space_creation_service(db: AsyncSession = Depends(get_db)):
+    from .device.applications.personal_space_service import PersonalSpaceService
+    from .shared.infrastructure.database.space_creation_unit_of_work import SpaceCreationUnitOfWork
+
+    return PersonalSpaceService(SpaceCreationUnitOfWork(db))
+
+
+def get_space_deletion_service(db: AsyncSession = Depends(get_db)):
+    from .device.applications.space_deletion_service import SpaceDeletionService
+    from .shared.infrastructure.database.space_deletion_unit_of_work import SpaceDeletionUnitOfWork
+
+    return SpaceDeletionService(SpaceDeletionUnitOfWork(db))
+
+
 def get_wine_cellar_repository(db: AsyncSession = Depends(get_db)) -> WineCellarRepository:
     return WineCellarRepository(db)
 

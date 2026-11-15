@@ -13,12 +13,14 @@ class OrganizationRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def resolve_personal_organization(self, user_id: int) -> Organization:
-        # Serialize personal-space creation per user until the space save commits.
-        # Keep the organization and its first space in the same transaction.
+    async def lock_space_creation(self, user_id: int) -> None:
+        # Both space-creation routes hold this lock until the unit of work ends.
         await self._session.execute(
             text("SELECT pg_advisory_xact_lock(74102, :user_id)"), {"user_id": user_id}
         )
+
+    async def resolve_personal_organization(self, user_id: int) -> Organization:
+        # Caller holds lock_space_creation and owns the transaction.
         result = await self._session.execute(
             select(OrganizationORM)
             .where(OrganizationORM.owner_user_id == str(user_id))

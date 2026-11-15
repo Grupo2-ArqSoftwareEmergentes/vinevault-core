@@ -23,6 +23,8 @@
 - `device` also owns organizations, spaces, thresholds, commands, and alert incidents. `telemetry`, `wine_cellar`, and `inventory_intelligence` are separate contexts; cross-context facade contracts live in `interfaces/acl.py` with implementations in `applications/acl.py`. IAM uses its own flatter router/CRUD structure.
 - All ORM contexts share `app.core.database.Base`; context-local `models/base.py` files re-export it. Ensure new ORM models are imported before `init_db()` so `create_all` sees them.
 - Several device handler implementations live directly in `app/device/applications/command_handlers/__init__.py`; check there before assuming a class is missing or adding a duplicate.
+- Both space-creation routes use `PersonalSpaceService` and `SpaceCreationUnitOfWork`: new organization (if needed), space, and default cellar commit together. Its space/cellar repositories use `auto_commit=False`; do not reintroduce repository commits in this flow. Creation responses add `default_wine_cellar`; ordinary space read/update responses do not.
+- Space deletion uses `SpaceDeletionService`/`SpaceDeletionUnitOfWork`: lock and authorize the space, reject assigned devices, then delete inventories, cellars and space in one transaction. Bulk cellar deletion is explicit to support existing FKs without cascade; never replace it with per-cellar repository calls that commit early.
 
 ## Edge integration
 

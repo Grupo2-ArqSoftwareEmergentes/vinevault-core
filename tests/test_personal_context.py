@@ -6,7 +6,8 @@ The normal app lifespan (including factory/edge seeds) is deliberately not run.
 import asyncio
 import os
 import unittest
-from uuid import uuid4
+from unittest.mock import patch
+from uuid import UUID, uuid4
 
 import httpx
 from sqlalchemy import event, func, select, text
@@ -15,6 +16,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.database import Base, get_db
 from app.core.security import create_access_token
 from app.device.infrastructure.database.models.organization_orm import OrganizationORM
+from app.device.infrastructure.database.models.space_orm import SpaceORM
+from app.device.infrastructure.database.models.device_orm import DeviceORM
+from app.device.infrastructure.database.models.device_assignment_orm import DeviceAssignmentORM
+from app.device.infrastructure.database.repositories.space_repository import SpaceRepository
+from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
+from app.wine_cellar.infrastructure.database.models.wine_inventory_item_orm import WineInventoryItemORM
+from app.wine_cellar.infrastructure.database.repositories.wine_cellar_repository import WineCellarRepository
 from app.main import app
 
 
@@ -67,6 +75,15 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
+    async def create_inventory(self, cellar, user_id=1):
+        response = await self.client.post(
+            f"/api/v1/wine-cellars/{cellar['id']}/inventory",
+            json={"wine_name": "Reserva", "wine_type": "Tinto", "age_years": 2, "quantity": 3},
+            headers=self.headers(user_id),
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
     async def test_personal_organization_is_transparent_and_reused(self):
         first = await self.create_space()
         second = await self.create_space("Departamento")
@@ -77,7 +94,7 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
         context = await self.client.get("/api/v1/user/context", headers=self.headers())
         self.assertEqual(context.status_code, 200)
         self.assertEqual(len(context.json()["spaces"]), 2)
-        self.assertEqual(context.json()["wine_cellars"], [])
+        self.assertEqual(len(context.json()["wine_cellars"]), 2)
         self.assertEqual(set(context.json()["spaces"][0]), {"id", "name"})
 
     async def test_existing_organization_and_legacy_routes_still_work(self):
@@ -93,10 +110,17 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
             json={"name": "Legado"}, headers=self.headers(),
         )
         self.assertEqual(legacy.status_code, 201, legacy.text)
+        self.assertEqual(legacy.json()["default_wine_cellar"]["space_id"], legacy.json()["id"])
         response = await self.client.get(
             f"/api/v1/organizations/{org_id}/spaces", headers=self.headers()
         )
         self.assertEqual(len(response.json()), 2)
+        async with self.sessions() as session:
+            for space_id in (direct["id"], legacy.json()["id"]):
+                self.assertEqual(await session.scalar(
+                    select(func.count()).select_from(WineCellarORM)
+                    .where(WineCellarORM.space_id == space_id)
+                ), 1)
 
     async def test_context_and_cellar_filter_are_tenant_scoped(self):
         own = await self.create_space()
@@ -119,16 +143,19 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         context = response.json()
         self.assertEqual(len(context["spaces"]), 2)
-        self.assertEqual(len(context["wine_cellars"]), 2)
+        self.assertEqual(len(context["wine_cellars"]), 4)
         self.assertNotIn(foreign_cellar["id"], [c["id"] for c in context["wine_cellars"]])
         for parameter in ("space_id", "spaceId"):
             response = await self.client.get(
                 "/api/v1/wine-cellars", params={parameter: own["id"]}, headers=self.headers()
             )
             self.assertEqual(response.status_code, 200)
-            self.assertEqual([c["id"] for c in response.json()], [own_cellar["id"]])
+            self.assertEqual(
+                {c["id"] for c in response.json()},
+                {own_cellar["id"], own["default_wine_cellar"]["id"]},
+            )
         all_cellars = await self.client.get("/api/v1/wine-cellars", headers=self.headers())
-        self.assertEqual(len(all_cellars.json()), 2)
+        self.assertEqual(len(all_cellars.json()), 4)
         forbidden_paths = [
             f"/api/v1/wine-cellars?spaceId={foreign['id']}",
             f"/api/v1/spaces/{foreign['id']}/wine-cellars",
@@ -173,22 +200,21 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len({r.json()["organization_id"] for r in responses if r.status_code == 201}), 1)
         async with self.sessions() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(OrganizationORM)), 1)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 5)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 5)
 
-    async def test_foreign_keys_prevent_deleting_occupied_parents(self):
+    async def test_space_can_be_deleted_with_its_default_cellar(self):
         space = await self.create_space()
-        cellar = await self.create_cellar(space)
-        response = await self.client.delete(f"/api/v1/spaces/{space['id']}", headers=self.headers())
-        self.assertEqual(response.status_code, 409)
         response = await self.client.delete(
             f"/api/v1/organizations/{space['organization_id']}", headers=self.headers()
         )
         self.assertEqual(response.status_code, 409)
-        response = await self.client.delete(
-            f"/api/v1/wine-cellars/{cellar['id']}", headers=self.headers()
-        )
-        self.assertEqual(response.status_code, 204)
         response = await self.client.delete(f"/api/v1/spaces/{space['id']}", headers=self.headers())
         self.assertEqual(response.status_code, 204)
+        async with self.sessions() as session:
+            self.assertIsNone(await session.get(SpaceORM, UUID(space["id"])))
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 0)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(OrganizationORM)), 1)
 
     async def test_invalid_missing_and_conflicting_space_filters(self):
         for params, expected_status in (
@@ -200,6 +226,159 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
                 "/api/v1/wine-cellars", params=params, headers=self.headers()
             )
             self.assertEqual(response.status_code, expected_status, response.text)
+
+    async def test_creating_space_creates_exactly_one_default_cellar(self):
+        space = await self.create_space()
+        cellar = space["default_wine_cellar"]
+        self.assertEqual(cellar["name"], "Cava Principal")
+        self.assertEqual(cellar["description"], "Cava inicial creada automáticamente")
+        self.assertEqual(cellar["space_id"], space["id"])
+        self.assertIsNone(cellar["device_id"])
+        async with self.sessions() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 1)
+        response = await self.client.get("/api/v1/user/context", headers=self.headers())
+        self.assertEqual(response.json()["wine_cellars"], [{
+            "id": cellar["id"], "name": "Cava Principal", "space_id": space["id"],
+        }])
+
+    async def test_failure_after_cellar_insert_rolls_back_entire_creation(self):
+        original_save = WineCellarRepository.save
+
+        async def failing_save(repository, cellar):
+            await original_save(repository, cellar)
+            raise RuntimeError("Injected failure after cellar flush")
+
+        with patch.object(WineCellarRepository, "save", failing_save):
+            with self.assertRaisesRegex(RuntimeError, "Injected failure"):
+                await self.client.post(
+                    "/api/v1/spaces", json={"name": "No persistir"}, headers=self.headers()
+                )
+        async with self.sessions() as session:
+            for model in (OrganizationORM, SpaceORM, WineCellarORM):
+                self.assertEqual(await session.scalar(select(func.count()).select_from(model)), 0)
+
+        # The legacy route must roll back space/cellar without deleting an existing organization.
+        response = await self.client.post(
+            "/api/v1/organizations", json={"name": "Existente"}, headers=self.headers()
+        )
+        org_id = response.json()["id"]
+        with patch.object(WineCellarRepository, "save", failing_save):
+            with self.assertRaisesRegex(RuntimeError, "Injected failure"):
+                await self.client.post(
+                    f"/api/v1/organizations/{org_id}/spaces",
+                    json={"name": "No persistir"}, headers=self.headers(),
+                )
+        async with self.sessions() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(OrganizationORM)), 1)
+            for model in (SpaceORM, WineCellarORM):
+                self.assertEqual(await session.scalar(select(func.count()).select_from(model)), 0)
+
+    async def test_mixed_creation_routes_share_space_limit(self):
+        response = await self.client.post(
+            "/api/v1/organizations", json={"name": "Personal"}, headers=self.headers()
+        )
+        org_id = response.json()["id"]
+        responses = await asyncio.gather(*[
+            self.client.post(
+                "/api/v1/spaces" if i % 2 else f"/api/v1/organizations/{org_id}/spaces",
+                json={"name": f"Espacio {i}"}, headers=self.headers(),
+            ) for i in range(6)
+        ])
+        self.assertEqual(sorted(r.status_code for r in responses), [201] * 5 + [409])
+        async with self.sessions() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 5)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 5)
+
+    async def test_legacy_creation_rejects_foreign_organization_without_side_effects(self):
+        foreign = await self.create_space(user_id=2)
+        for org_id, expected in ((foreign["organization_id"], 403), (str(uuid4()), 404)):
+            response = await self.client.post(
+                f"/api/v1/organizations/{org_id}/spaces",
+                json={"name": "No autorizado"}, headers=self.headers(),
+            )
+            self.assertEqual(response.status_code, expected)
+        async with self.sessions() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 1)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 1)
+
+    async def test_deleting_space_removes_all_its_cellars_and_inventory_only(self):
+        own = await self.create_space()
+        another = await self.create_space("Conservar")
+        foreign = await self.create_space(user_id=2)
+        extra_cellar = await self.create_cellar(own)
+        for cellar, user_id in (
+            (own["default_wine_cellar"], 1), (extra_cellar, 1),
+            (another["default_wine_cellar"], 1), (foreign["default_wine_cellar"], 2),
+        ):
+            await self.create_inventory(cellar, user_id)
+        response = await self.client.delete(f"/api/v1/spaces/{own['id']}", headers=self.headers())
+        self.assertEqual(response.status_code, 204, response.text)
+        async with self.sessions() as session:
+            for model in (SpaceORM, WineCellarORM, WineInventoryItemORM):
+                self.assertEqual(await session.scalar(select(func.count()).select_from(model)), 2)
+        context = await self.client.get("/api/v1/user/context", headers=self.headers())
+        self.assertEqual([s["id"] for s in context.json()["spaces"]], [another["id"]])
+        self.assertEqual([c["id"] for c in context.json()["wine_cellars"]], [another["default_wine_cellar"]["id"]])
+        response = await self.client.delete(f"/api/v1/spaces/{own['id']}", headers=self.headers())
+        self.assertEqual(response.status_code, 404)
+
+    async def test_empty_space_can_still_be_deleted(self):
+        space = await self.create_space()
+        response = await self.client.delete(
+            f"/api/v1/wine-cellars/{space['default_wine_cellar']['id']}", headers=self.headers()
+        )
+        self.assertEqual(response.status_code, 204)
+        response = await self.client.delete(f"/api/v1/spaces/{space['id']}", headers=self.headers())
+        self.assertEqual(response.status_code, 204)
+        async with self.sessions() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 0)
+
+    async def test_space_deletion_requires_owner_and_jwt(self):
+        space = await self.create_space(user_id=2)
+        await self.create_inventory(space["default_wine_cellar"], user_id=2)
+        for headers, statuses in (({}, (401, 403)), (self.headers(), (403,))):
+            response = await self.client.delete(f"/api/v1/spaces/{space['id']}", headers=headers)
+            self.assertIn(response.status_code, statuses)
+        async with self.sessions() as session:
+            for model in (SpaceORM, WineCellarORM, WineInventoryItemORM):
+                self.assertEqual(await session.scalar(select(func.count()).select_from(model)), 1)
+
+    async def test_failed_space_deletion_restores_cellars_and_inventory(self):
+        space = await self.create_space()
+        await self.create_inventory(space["default_wine_cellar"])
+        original_delete = SpaceRepository.delete
+
+        async def failing_delete(repository, space_id):
+            await original_delete(repository, space_id)
+            raise RuntimeError("Injected failure after space delete")
+
+        with patch.object(SpaceRepository, "delete", failing_delete):
+            with self.assertRaisesRegex(RuntimeError, "Injected failure"):
+                await self.client.delete(f"/api/v1/spaces/{space['id']}", headers=self.headers())
+        async with self.sessions() as session:
+            for model in (SpaceORM, WineCellarORM, WineInventoryItemORM):
+                self.assertEqual(await session.scalar(select(func.count()).select_from(model)), 1)
+
+    async def test_space_with_assigned_device_still_cannot_be_deleted(self):
+        space = await self.create_space()
+        await self.create_inventory(space["default_wine_cellar"])
+        async with self.sessions() as session:
+            device = DeviceORM(
+                serial_number="delete-test", name="Sensor", factory_name="Factory",
+                hardware_id="delete-hardware", api_key="delete-api-key", device_type="SENSOR",
+            )
+            session.add(device)
+            await session.flush()
+            session.add(DeviceAssignmentORM(
+                device_id=device.id, space_id=UUID(space["id"]), owner_user_id="1",
+            ))
+            await session.commit()
+        response = await self.client.delete(f"/api/v1/spaces/{space['id']}", headers=self.headers())
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["detail"], "Space has devices")
+        async with self.sessions() as session:
+            for model in (SpaceORM, WineCellarORM, WineInventoryItemORM, DeviceAssignmentORM, DeviceORM):
+                self.assertEqual(await session.scalar(select(func.count()).select_from(model)), 1)
 
 
 if __name__ == "__main__":

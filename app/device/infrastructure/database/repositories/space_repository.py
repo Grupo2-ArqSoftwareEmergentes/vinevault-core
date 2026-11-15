@@ -9,11 +9,14 @@ from ..models.space_orm import SpaceORM
 
 
 class SpaceRepository:
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, *, auto_commit: bool = True):
         self._session = session
+        self._auto_commit = auto_commit
 
-    async def find_by_id(self, space_id: UUID) -> Optional[Space]:
+    async def find_by_id(self, space_id: UUID, *, for_update: bool = False) -> Optional[Space]:
         stmt = select(SpaceORM).where(SpaceORM.id == space_id)
+        if for_update:
+            stmt = stmt.with_for_update()
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
         return orm.to_domain() if orm else None
@@ -33,11 +36,13 @@ class SpaceRepository:
     async def save(self, space: Space) -> Space:
         orm = await self._session.merge(SpaceORM.from_domain(space))
         await self._session.flush()
-        await self._session.commit()
+        if self._auto_commit:
+            await self._session.commit()
         result = await self._session.execute(select(SpaceORM).where(SpaceORM.id == orm.id))
         persisted = result.scalar_one()
         return persisted.to_domain()
 
     async def delete(self, space_id: UUID) -> None:
         await self._session.execute(delete(SpaceORM).where(SpaceORM.id == space_id))
-        await self._session.commit()
+        if self._auto_commit:
+            await self._session.commit()

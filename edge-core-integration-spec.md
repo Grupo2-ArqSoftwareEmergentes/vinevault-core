@@ -22,7 +22,9 @@ La base original venia de otro proyecto similar, pero aqui se ajusta a lo que re
 - `GET /api/v1/user/context` devuelve `{"spaces":[{"id":"...","name":"..."}],"wine_cellars":[{"id":"...","name":"...","space_id":"..."}]}` para el selector global. Es de solo lectura, no inicializa datos y usa dos consultas filtradas por el usuario autenticado.
 - `GET /api/v1/wine-cellars` lista las cavas del usuario. Acepta `spaceId` o `space_id` para filtrar por un espacio propio; valores simultáneos distintos producen `422`, un espacio inexistente `404` y uno ajeno `403`.
 - La creación de cavas sigue disponible en `POST /api/v1/spaces/{space_id}/wine-cellars`, sin validación adicional de organización.
+- Ambas rutas de creación de espacios (directa y anidada por organización) crean una `Cava Principal` con descripción `Cava inicial creada automáticamente` y `device_id=null`. Organización nueva, espacio y cava se confirman en una única transacción. La respuesta de creación conserva los campos de `SpaceResponse` y agrega `default_wine_cellar` con la representación completa `WineCellarResponse`; el frontend puede autoseleccionar su ID sin otra llamada. El contexto global refleja la nueva cava sin cambios en su formato. No se modifican espacios anteriores ni se crea una cava por consultar el contexto.
 - Estas rutas usan JWT de usuario, no API key del edge. No cambian los contratos Kafka ni las foreign keys.
+- `DELETE /api/v1/spaces/{space_id}` valida el propietario y elimina inventarios, cavas y espacio en una única transacción; responde `204` incluso si el espacio tenía cavas. La organización se conserva. Mantiene `409` (`Space has devices`) si existen dispositivos asignados. La confirmación destructiva corresponde al frontend y debe advertir sobre la pérdida de cavas e inventario; no requiere peticiones DELETE separadas por cava.
 
 ### IAM
 

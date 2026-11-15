@@ -115,12 +115,19 @@ Las rutas mantienen el prefijo real del proyecto, `/api/v1`, y el término `wine
 |---|---|
 | Crear un espacio sin formulario de organización | `POST /api/v1/spaces` con `{"name":"Casa"}` |
 | Listar espacios propios | `GET /api/v1/spaces` |
+| Eliminar un espacio y todas sus cavas e inventarios | `DELETE /api/v1/spaces/<uuid>` |
 | Obtener espacios y cavas para el selector | `GET /api/v1/user/context` |
 | Listar todas las cavas propias | `GET /api/v1/wine-cellars` |
 | Filtrar cavas por espacio | `GET /api/v1/wine-cellars?spaceId=<uuid>` (también acepta `space_id`) |
 | Crear una cava en un espacio propio | `POST /api/v1/spaces/<uuid>/wine-cellars` con `{"name":"Mi cava"}` |
 
-Al crear un espacio por la ruta directa se reutiliza la organización más antigua del usuario (desempate por ID); si no existe, se crea `Organización Personal` en la misma transacción que el espacio. No hace falta inicialización previa ni cambiar las cuentas existentes. El contexto es de solo lectura y devuelve listas vacías para cuentas sin espacios. Se conserva el límite de cinco espacios por organización; no se crea otra organización automáticamente para eludirlo.
+Al crear un espacio por la ruta directa se reutiliza la organización más antigua del usuario (desempate por ID); si no existe, se crea `Organización Personal`. Ambas rutas de creación de espacios (`POST /api/v1/spaces` y `POST /api/v1/organizations/{organization_id}/spaces`) crean también exactamente una **Cava Principal**, con descripción `Cava inicial creada automáticamente` y sin dispositivo vinculado.
+
+La organización nueva (si aplica), el espacio y su cava se guardan en una única transacción: si falla cualquier paso, se revierte todo. No hace falta inicialización previa ni cambiar las cuentas existentes. No se agregan cavas retroactivamente a espacios ya existentes.
+
+La respuesta `201` conserva los campos del espacio y agrega `default_wine_cellar`, con los campos habituales de `WineCellarResponse`: `id`, `space_id`, `name`, `description`, `device_id`, `created_at` y `updated_at`. El frontend puede usar directamente `response.id` y `response.default_wine_cellar.id` para autoseleccionar ambos y actualizar el selector, sin recargar la página ni crear otra cava manualmente. `GET /api/v1/user/context` también refleja la cava después del commit; su contrato no cambia.
+
+El contexto es de solo lectura y devuelve listas vacías para cuentas sin espacios. Se conserva el límite de cinco espacios por organización, incluso con solicitudes simultáneas por ambas rutas; no se crea otra organización automáticamente para eludirlo. Actualmente no existe una política de suscripción Free ni un límite de cantidad de cavas implementado en el backend; no se introduce un límite nuevo con este cambio.
 
 El contexto usa dos consultas, sin una consulta adicional por espacio, y tiene esta forma:
 
@@ -133,6 +140,12 @@ El contexto usa dos consultas, sin una consulta adicional por espacio, y tiene e
 
 Las rutas anteriores de organizaciones y espacios anidados siguen disponibles. No se modifican las foreign keys ni se necesita una migración para estas rutas.
 
+### Eliminación de espacios
+
+`DELETE /api/v1/spaces/{space_id}` permite eliminar espacios vacíos o con cavas. El backend valida al propietario y elimina **todos los inventarios de sus cavas, las cavas y el espacio**, en una única transacción. Responde `204 No Content`; no elimina la organización ni afecta otros espacios. Si hay dispositivos asignados al espacio, mantiene `409` con `detail: "Space has devices"`; primero deben desvincularse mediante el flujo existente.
+
+El frontend debe pedir confirmación antes de enviar el DELETE, indicando que se eliminarán también las cavas y su inventario. No necesita borrar cada cava por separado ni enviar un parámetro de confirmación. Tras `204`, debe limpiar la selección si corresponde y actualizar el contexto global. Un fallo de la transacción revierte toda la eliminación. No es necesario cambiar las foreign keys de bases existentes.
+
 ## Pruebas de contexto personal
 
 Con PostgreSQL local iniciado y las dependencias instaladas:
@@ -142,7 +155,7 @@ $env:TEST_DATABASE_URL='postgresql+asyncpg://postgres:postgres@localhost:5432/vi
 .\venv\Scripts\python.exe -B -m unittest discover -s tests -p test_personal_context.py -v
 ```
 
-Las pruebas crean y eliminan un esquema temporal único por caso; no usan las tablas existentes ni ejecutan el arranque/seeds de la aplicación. El usuario de pruebas necesita permisos para crear esquemas. Sin `TEST_DATABASE_URL`, las pruebas se omiten. Cubren JWT, aislamiento entre usuarios, filtros, compatibilidad de rutas, integridad referencial y creación concurrente sin duplicar organizaciones.
+Las pruebas crean y eliminan un esquema temporal único por caso; no usan las tablas existentes ni ejecutan el arranque/seeds de la aplicación. El usuario de pruebas necesita permisos para crear esquemas. Sin `TEST_DATABASE_URL`, las pruebas se omiten. Cubren JWT, aislamiento entre usuarios, filtros, compatibilidad de rutas, integridad referencial, creación concurrente sin duplicar organizaciones, una cava inicial por espacio y rollback completo ante fallos posteriores a la inserción de la cava.
 
 ## Detener los servicios
 
