@@ -6,6 +6,8 @@ from ..core import security, config
 async def authenticate_user(db, username: str, password: str) -> Optional[models.User]:
     user = await crud.get_user_by_username(db, username)
     if not user:
+        user = await crud.get_user_by_email(db, username)
+    if not user:
         return None
     if not security.verify_password(password, user.hashed_password):
         return None
@@ -15,7 +17,7 @@ async def authenticate_user(db, username: str, password: str) -> Optional[models
 
 def create_tokens(user: models.User) -> schemas.TokenResponse:
     # Access token (corto plazo)
-    access_token_data = {"sub": str(user.id), "username": user.username, "user_id": user.id}
+    access_token_data = {"sub": str(user.id), "username": user.username, "user_id": user.id, "type": "access"}
     access_token = security.create_access_token(access_token_data)
     
     # Refresh token (largo plazo)

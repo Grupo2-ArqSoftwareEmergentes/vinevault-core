@@ -5,7 +5,9 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.device.domain.models import Space
+from app.device.domain.models.value_objects.space_access import SpaceRole
 from ..models.space_orm import SpaceORM
+from ..models.space_member_orm import SpaceMemberORM
 
 
 class SpaceRepository:
@@ -28,10 +30,17 @@ class SpaceRepository:
         return [orm.to_domain() for orm in orms]
 
     async def find_all_by_owner_user_id(self, user_id: int) -> List[Space]:
-        stmt = select(SpaceORM).where(SpaceORM.owner_user_id == str(user_id)).order_by(SpaceORM.created_at.desc())
+        # Legacy method name retained for callers; visibility is membership-based.
+        stmt = select(SpaceORM).join(SpaceMemberORM, SpaceMemberORM.space_id == SpaceORM.id).where(SpaceMemberORM.user_id == user_id).order_by(SpaceORM.created_at.desc())
         result = await self._session.execute(stmt)
         orms = result.scalars().all()
         return [orm.to_domain() for orm in orms]
+
+    async def find_all_with_membership(self, user_id: int) -> list[tuple[Space, SpaceRole]]:
+        result = await self._session.execute(select(SpaceORM, SpaceMemberORM.role).join(
+            SpaceMemberORM, SpaceMemberORM.space_id == SpaceORM.id,
+        ).where(SpaceMemberORM.user_id == user_id).order_by(SpaceORM.created_at.desc(), SpaceORM.id))
+        return [(space.to_domain(), role) for space, role in result]
 
     async def save(self, space: Space) -> Space:
         orm = await self._session.merge(SpaceORM.from_domain(space))

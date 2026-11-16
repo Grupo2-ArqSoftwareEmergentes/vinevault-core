@@ -13,6 +13,7 @@ from app.device.infrastructure.database.repositories import (
     DeviceRepository, DeviceAssignmentRepository, SpaceRepository
 )
 from app.device.infrastructure.kafka import KafkaDeviceEventPublisher
+from app.device.applications.space_authorization_service import SpaceAuthorizationService, SpacePermission
 
 
 class DeviceCommandServiceImpl(DeviceCommandService):
@@ -23,12 +24,19 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         space_repo: SpaceRepository,
         device_command_repo=None,
         device_event_publisher: KafkaDeviceEventPublisher | None = None,
+        space_authorization: SpaceAuthorizationService | None = None,
     ):
         self._device_repo = device_repo
         self._assignment_repo = assignment_repo
         self._space_repo = space_repo
         self._device_command_repo = device_command_repo
         self._device_event_publisher = device_event_publisher
+        self._space_authorization = space_authorization
+
+    async def _require_space_configuration(self, space_id: UUID | None, user_id: int) -> None:
+        if space_id is None or self._space_authorization is None:
+            raise PermissionError("Space membership is required")
+        await self._space_authorization.require(space_id, user_id, SpacePermission.CONFIGURE)
 
     async def handle_seed_devices(self, command: SeedDevicesCommand) -> List[Device]:
         expected_serial_numbers = [
@@ -97,16 +105,15 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         space = await self._space_repo.find_by_id(command.space_id)
         if not space:
             raise ValueError("Space not found")
-        if space.owner_user_id.user_id != command.user_id:
-            raise PermissionError("Space does not belong to user")
+        await self._require_space_configuration(space.id, command.user_id)
 
         # Find assignment by claim token
         assignment = await self._assignment_repo.find_by_claim_token(command.claim_token)
         if not assignment:
             raise ValueError("Invalid claim token")
 
-        if assignment.owner_user_id is not None and assignment.owner_user_id.user_id != command.user_id:
-            raise PermissionError("Device assignment belongs to another user")
+        if assignment.space_id is not None and assignment.space_id != command.space_id:
+            raise PermissionError("Device already belongs to another space")
 
         # Claim the device
         assignment.claim_to_space(command.space_id, UserId(user_id=command.user_id))
@@ -119,8 +126,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         if not assignment:
             raise ValueError("Device assignment not found")
 
-        if assignment.owner_user_id is None or assignment.owner_user_id.user_id != command.user_id:
-            raise PermissionError("Device does not belong to user")
+        await self._require_space_configuration(assignment.space_id, command.user_id)
 
         # Reset device name to factory default
         device = assignment.device
@@ -140,8 +146,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         if not assignment:
             raise ValueError("Device assignment not found")
 
-        if assignment.owner_user_id is None or assignment.owner_user_id.user_id != command.user_id:
-            raise PermissionError("Device does not belong to user")
+        await self._require_space_configuration(assignment.space_id, command.user_id)
 
         device = assignment.device
         device.update_name(command.name)

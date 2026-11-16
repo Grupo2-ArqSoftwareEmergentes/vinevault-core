@@ -35,8 +35,7 @@ async def _get_space_for_user(space_id: UUID, user_id: int, space_repo):
     space = await space_repo.find_by_id(space_id)
     if not space:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Space not found")
-    if space.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space does not belong to user")
+    # Space membership/role is enforced by the shared router guard.
     return space
 
 
@@ -144,8 +143,6 @@ async def link_device_to_wine_cellar(
     device_assignment = await assignment_repo.find_by_device_id(request.device_id)
     if not device_assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if device_assignment.owner_user_id is None or device_assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
     if device_assignment.space_id != wine_cellar.space_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Device does not belong to the same space as the wine cellar")
     if wine_cellar.device_id is not None and wine_cellar.device_id != request.device_id:

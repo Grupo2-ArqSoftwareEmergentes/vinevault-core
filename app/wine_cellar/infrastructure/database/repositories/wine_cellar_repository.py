@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.wine_cellar.domain.models import WineCellar
 from app.device.infrastructure.database.models.space_orm import SpaceORM
+from app.device.infrastructure.database.models.space_member_orm import SpaceMemberORM
 from .wine_inventory_repository import WineInventoryRepository
 from ..models.wine_cellar_orm import WineCellarORM
 from ..models.wine_inventory_item_orm import WineInventoryItemORM
@@ -38,7 +39,8 @@ class WineCellarRepository:
         stmt = (
             select(WineCellarORM)
             .join(SpaceORM, WineCellarORM.space_id == SpaceORM.id)
-            .where(SpaceORM.owner_user_id == str(user_id))
+            .join(SpaceMemberORM, SpaceMemberORM.space_id == SpaceORM.id)
+            .where(SpaceMemberORM.user_id == user_id)
             .order_by(WineCellarORM.created_at.desc(), WineCellarORM.id)
         )
         if space_id is not None:

@@ -3,6 +3,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from app.device.domain.models import Space
+from app.device.domain.models.value_objects.space_access import SpaceType, SubscriptionPlan, SubscriptionStatus
 
 
 class SpaceResponse(BaseModel):
@@ -10,6 +11,9 @@ class SpaceResponse(BaseModel):
     name: str
     organization_id: UUID
     owner_user_id: int
+    space_type: SpaceType
+    subscription_plan: SubscriptionPlan
+    subscription_status: SubscriptionStatus
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -20,6 +24,9 @@ class SpaceResponse(BaseModel):
             name=space.name,
             organization_id=space.organization_id,
             owner_user_id=space.owner_user_id.user_id,
+            space_type=space.space_type,
+            subscription_plan=space.subscription_plan,
+            subscription_status=space.subscription_status,
             created_at=space.created_at,
             updated_at=space.updated_at,
         )

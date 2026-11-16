@@ -41,8 +41,6 @@ async def list_devices(
     space = await space_repo.find_by_id(space_id)
     if not space:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Space not found")
-    if space.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space does not belong to user")
 
     assignments, total = await assignment_repo.find_by_space_id(space_id, page=page, size=size)
     items = [DeviceResponse.from_assignment(assignment) for assignment in assignments]
@@ -115,8 +113,6 @@ async def get_device_status(
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
     
     return DeviceStatusResponse(
         device_id=assignment.device.id,
@@ -170,8 +166,6 @@ async def get_latest_device_command(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     commands = await command_repo.find_all_by_device_id(device_id)
     if not commands:
@@ -190,8 +184,6 @@ async def get_device_command(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     command = await command_repo.find_by_id(command_id)
     if not command or command.device.id != device_id:
@@ -209,8 +201,6 @@ async def list_device_commands(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     commands = await command_repo.find_all_by_device_id(device_id)
     return [DeviceCommandResponse.from_domain(command) for command in commands]
@@ -227,8 +217,6 @@ async def list_device_telemetry(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     telemetry_records = await telemetry_repo.find_all_by_device_id(device_id)
     return [TelemetryRecordResponse.from_domain(record) for record in telemetry_records[:limit]]
@@ -246,8 +234,6 @@ async def create_device_command(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     command = DeviceCommand(
         device=assignment.device,

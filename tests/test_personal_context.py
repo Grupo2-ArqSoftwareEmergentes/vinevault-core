@@ -25,10 +25,11 @@ from app.wine_cellar.infrastructure.database.models.wine_inventory_item_orm impo
 from app.wine_cellar.infrastructure.database.repositories.wine_cellar_repository import WineCellarRepository
 from app.wine_cellar.infrastructure.database.repositories.wine_inventory_repository import WineInventoryRepository
 from app.main import app
+from app.iam.models import User
 
 
 @unittest.skipUnless(os.getenv("TEST_DATABASE_URL"), "Set TEST_DATABASE_URL to run PostgreSQL checks")
-class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
+class PostgresAPITestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.schema = f"test_personal_context_{uuid4().hex}"
         url = os.environ["TEST_DATABASE_URL"]
@@ -41,6 +42,14 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+        async with self.sessions() as session:
+            session.add_all([
+                User(id=i, username=f"testuser{i}", email=f"test{i}@example.com", hashed_password="not-used", full_name=f"User {i}")
+                for i in (1, 2, 3)
+            ])
+            await session.flush()
+            await session.execute(text("SELECT setval(pg_get_serial_sequence('users', 'id'), 3, true)"))
+            await session.commit()
 
         async def override_db():
             async with self.sessions() as session:
@@ -85,6 +94,7 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
+class PersonalContextTests(PostgresAPITestCase):
     async def test_personal_organization_is_transparent_and_reused(self):
         first = await self.create_space()
         second = await self.create_space("Departamento")
@@ -96,7 +106,7 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.status_code, 200)
         self.assertEqual(len(context.json()["spaces"]), 2)
         self.assertEqual(len(context.json()["wine_cellars"]), 2)
-        self.assertEqual(set(context.json()["spaces"][0]), {"id", "name"})
+        self.assertEqual(context.json()["spaces"][0]["role"], "OWNER")
 
     async def test_existing_organization_and_legacy_routes_still_work(self):
         organization = await self.client.post(
@@ -140,7 +150,7 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.get("/api/v1/user/context", headers=self.headers())
         finally:
             event.remove(self.engine.sync_engine, "before_cursor_execute", record_statement)
-        self.assertEqual(len(statements), 2, statements)
+        self.assertEqual(len(statements), 3, statements)  # active identity + two directory queries
         self.assertEqual(response.status_code, 200)
         context = response.json()
         self.assertEqual(len(context["spaces"]), 2)

@@ -1,4 +1,5 @@
 from uuid import UUID
+from app.device.domain.models.value_objects.space_access import SpaceRole
 
 
 class SpaceNotFoundError(ValueError):
@@ -23,7 +24,7 @@ class SpaceDeletionService:
             space = await work.spaces.find_by_id(space_id, for_update=True)
             if space is None:
                 raise SpaceNotFoundError("Space not found")
-            if space.owner_user_id.user_id != user_id:
+            if await work.members.role_for(space_id, user_id) != SpaceRole.OWNER:
                 raise SpaceAccessDeniedError("Space does not belong to user")
             if await work.assignments.exists_by_space_id(space_id):
                 raise SpaceHasDevicesError("Space has devices")

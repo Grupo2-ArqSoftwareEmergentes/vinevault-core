@@ -39,8 +39,6 @@ async def list_thresholds(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     thresholds = []
     for metric in MetricThreshold:
@@ -60,8 +58,6 @@ async def replace_thresholds(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     if len(request.thresholds) != len(MetricThreshold):
         raise HTTPException(
@@ -107,8 +103,6 @@ async def create_threshold(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     config = DeviceMetricThresholdConfiguration(
         metric=request.metric,
@@ -140,8 +134,6 @@ async def update_threshold(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     assignment.put_configuration_value(
         f"threshold.{metric.value}",
@@ -164,8 +156,6 @@ async def delete_threshold(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     assignment.remove_configuration_value(f"threshold.{metric.value}")
     await assignment_repo.save(assignment)

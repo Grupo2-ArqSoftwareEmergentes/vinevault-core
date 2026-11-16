@@ -18,10 +18,13 @@ async def get_user_context(
     wine_cellar_repo = Depends(get_wine_cellar_repository),
 ) -> UserContextResponse:
     # Two tenant-scoped queries, regardless of the number of spaces/cellars.
-    spaces = await space_repo.find_all_by_owner_user_id(user_id)
+    spaces = await space_repo.find_all_with_membership(user_id)
     wine_cellars = await wine_cellar_repo.find_all_by_owner_user_id(user_id)
     return UserContextResponse(
-        spaces=[ContextSpaceResponse(id=space.id, name=space.name) for space in spaces],
+        spaces=[ContextSpaceResponse(
+            id=space.id, name=space.name, role=role, space_type=space.space_type,
+            subscription_plan=space.subscription_plan, subscription_status=space.subscription_status,
+        ) for space, role in spaces],
         wine_cellars=[
             ContextWineCellarResponse(id=cellar.id, name=cellar.name, space_id=cellar.space_id)
             for cellar in wine_cellars

@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.database import get_db
 from .core.security import decode_token
+from .device.applications.space_authorization_service import SpaceAuthorizationService
+from .device.infrastructure.database.repositories.space_member_repository import SpaceMemberRepository
 
 # Repositorios Device
 from .device.infrastructure.database.repositories import (
@@ -130,6 +132,7 @@ def get_device_command_service(
         space_repo=repos["space"],
         device_command_repo=repos["device_command"],
         device_event_publisher=device_event_publisher,
+        space_authorization=SpaceAuthorizationService(SpaceMemberRepository(db)),
     )
 
 
@@ -273,6 +276,8 @@ def get_current_user_id(
     try:
         token = credentials.credentials
         payload = decode_token(token)
+        if not payload or payload.get("type") == "refresh":
+            raise ValueError("Invalid access token")
         user_id = payload.get("sub") or payload.get("user_id")
         if user_id is None:
             raise HTTPException(
@@ -305,6 +310,8 @@ def get_current_user_id_optional(
     try:
         token = credentials.credentials
         payload = decode_token(token)
+        if not payload or payload.get("type") == "refresh":
+            return None
         user_id = payload.get("sub") or payload.get("user_id")
         if user_id is not None:
             return int(user_id)

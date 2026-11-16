@@ -10,7 +10,7 @@
 
 Sin opciones nuevas conserva `application/json` y todos los campos anteriores: `id`, `analysis_type`, `content`, `wine_cellar_id`, `tokens_used`, `created_at`. Agrega `status` (`completed` o `empty`) y `message` opcional. El frontend Angular existente puede seguir mostrando `content` sin cambios.
 
-La propiedad de la cava se verifica antes de leer su inventario. Si hay **cero registros de inventario**, responde inmediatamente `200 application/json`, sin construir prompts, inicializar el SDK ni llamar a Google:
+La membresía del espacio y el permiso de análisis (`OWNER`, `SOMMELIER` o `INVENTORY_CLERK`) se verifican antes de leer el inventario. Si hay **cero registros de inventario**, responde inmediatamente `200 application/json`, sin construir prompts, inicializar el SDK ni llamar a Google:
 
 ```json
 {

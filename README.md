@@ -77,6 +77,14 @@ Esto deshabilita el productor y el consumidor Kafka. No permite verificar los fl
 
 ## 4. Iniciar el backend Core
 
+Antes de iniciar una versión con cambios de esquema, respalda la base y ejecuta la migración con las instancias del backend detenidas:
+
+```powershell
+.\venv\Scripts\python.exe -m alembic upgrade head
+```
+
+La migración añade planes/tipos por espacio y convierte propietarios existentes en miembros OWNER. Si detecta propietarios sin identidad válida, se detiene sin reasignar datos. Revisa el destino de `.env` antes de ejecutarla. Detalles: [docs/space-tenancy.md](docs/space-tenancy.md).
+
 Con el entorno virtual activado:
 
 ```powershell
@@ -114,6 +122,7 @@ Las rutas mantienen el prefijo real del proyecto, `/api/v1`, y el término `wine
 | Operación | Endpoint |
 |---|---|
 | Crear un espacio sin formulario de organización | `POST /api/v1/spaces` con `{"name":"Casa"}` |
+| Onboarding con propósito explícito | `POST /api/v1/user/onboarding` con `{"name":"Casa","space_type":"COLLECTOR"}` |
 | Listar espacios propios | `GET /api/v1/spaces` |
 | Eliminar un espacio y todas sus cavas e inventarios | `DELETE /api/v1/spaces/<uuid>` |
 | Obtener espacios y cavas para el selector | `GET /api/v1/user/context` |
@@ -123,22 +132,22 @@ Las rutas mantienen el prefijo real del proyecto, `/api/v1`, y el término `wine
 
 Al crear un espacio por la ruta directa se reutiliza la organización más antigua del usuario (desempate por ID); si no existe, se crea `Organización Personal`. Ambas rutas de creación de espacios (`POST /api/v1/spaces` y `POST /api/v1/organizations/{organization_id}/spaces`) crean también exactamente una **Cava Principal**, con descripción `Cava inicial creada automáticamente` y sin dispositivo vinculado.
 
-La organización nueva (si aplica), el espacio y su cava se guardan en una única transacción: si falla cualquier paso, se revierte todo. No hace falta inicialización previa ni cambiar las cuentas existentes. No se agregan cavas retroactivamente a espacios ya existentes.
+La organización nueva (si aplica), el espacio, la membresía OWNER y su cava se guardan en una única transacción: si falla cualquier paso, se revierte todo. El espacio nace FREE/ACTIVE y admite propósito COLLECTOR o BUSINESS. Las cuentas existentes necesitan la migración descrita arriba; no se agregan cavas retroactivamente a espacios ya existentes.
 
 La respuesta `201` conserva los campos del espacio y agrega `default_wine_cellar`, con los campos habituales de `WineCellarResponse`: `id`, `space_id`, `name`, `description`, `device_id`, `created_at` y `updated_at`. El frontend puede usar directamente `response.id` y `response.default_wine_cellar.id` para autoseleccionar ambos y actualizar el selector, sin recargar la página ni crear otra cava manualmente. `GET /api/v1/user/context` también refleja la cava después del commit; su contrato no cambia.
 
-El contexto es de solo lectura y devuelve listas vacías para cuentas sin espacios. Se conserva el límite de cinco espacios por organización, incluso con solicitudes simultáneas por ambas rutas; no se crea otra organización automáticamente para eludirlo. Actualmente no existe una política de suscripción Free ni un límite de cantidad de cavas implementado en el backend; no se introduce un límite nuevo con este cambio.
+El contexto es de solo lectura e incluye espacios/cavas donde el usuario es miembro, aunque no sea el creador. Devuelve listas vacías para cuentas sin membresías. Se conserva el límite legacy de cinco espacios por organización; no es un plan global del usuario. El plan/estado pertenece a cada espacio; todavía no se integra cobro ni se añaden cuotas comerciales por cantidad de cavas.
 
-El contexto usa dos consultas, sin una consulta adicional por espacio, y tiene esta forma:
+El contexto usa una validación de identidad y dos consultas de directorio, sin N+1 por espacio:
 
 ```json
 {
-  "spaces": [{"id": "<uuid-espacio>", "name": "Casa"}],
+  "spaces": [{"id": "<uuid-espacio>", "name": "Casa", "space_type": "COLLECTOR", "subscription_plan": "FREE", "subscription_status": "ACTIVE", "role": "OWNER"}],
   "wine_cellars": [{"id": "<uuid-cava>", "name": "Mi cava", "space_id": "<uuid-espacio>"}]
 }
 ```
 
-Las rutas anteriores de organizaciones y espacios anidados siguen disponibles. No se modifican las foreign keys ni se necesita una migración para estas rutas.
+Las rutas anteriores siguen disponibles. La autorización se basa en `space_members`, no en `owner_user_id`. Contrato de onboarding, roles y migración: [docs/space-tenancy.md](docs/space-tenancy.md).
 
 ### Eliminación de espacios
 

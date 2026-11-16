@@ -3,6 +3,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from sqlalchemy import inspect
 from .config import settings
 
 
@@ -46,7 +47,16 @@ async def get_db():
 async def init_db():
     """Inicializar base de datos (crear tablas)"""
     async with engine.begin() as conn:
-        # En producción usar migraciones Alembic
+        def validate_existing_schema(connection):
+            inspector = inspect(connection)
+            tables = set(inspector.get_table_names())
+            if "users" in tables and "full_name" not in {c["name"] for c in inspector.get_columns("users")}:
+                raise RuntimeError("Database migration required: python -m alembic upgrade head")
+            if "spaces" in tables:
+                columns = {c["name"] for c in inspector.get_columns("spaces")}
+                if "space_members" not in tables or not {"space_type", "subscription_plan", "subscription_status"}.issubset(columns):
+                    raise RuntimeError("Database migration required: python -m alembic upgrade head")
+        await conn.run_sync(validate_existing_schema)
         await conn.run_sync(Base.metadata.create_all)
 
 async def close_db():

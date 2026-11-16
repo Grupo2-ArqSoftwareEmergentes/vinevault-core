@@ -26,8 +26,6 @@ async def list_device_alerts(
     assignment = await assignment_repo.find_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    if assignment.owner_user_id is None or assignment.owner_user_id.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device does not belong to user")
 
     alerts = await (
         alert_repo.find_active_by_device_id(device_id)

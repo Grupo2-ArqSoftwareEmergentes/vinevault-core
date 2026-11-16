@@ -5,6 +5,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 
 from ..models.device_assignment_orm import DeviceAssignmentORM
+from ..models.space_member_orm import SpaceMemberORM
 from app.device.domain.models import DeviceAssignment
 
 
@@ -81,7 +82,7 @@ class DeviceAssignmentRepository:
         stmt = select(func.count()).select_from(DeviceAssignmentORM).where(
             and_(
                 DeviceAssignmentORM.device_id == device_id,
-                DeviceAssignmentORM.owner_user_id == str(user_id)
+                DeviceAssignmentORM.space_id.in_(select(SpaceMemberORM.space_id).where(SpaceMemberORM.user_id == user_id))
             )
         )
         count = await self._session.scalar(stmt)
@@ -89,7 +90,7 @@ class DeviceAssignmentRepository:
 
     async def find_device_ids_by_owner_user_id(self, user_id: int) -> List[UUID]:
         stmt = select(DeviceAssignmentORM.device_id).where(
-            DeviceAssignmentORM.owner_user_id == str(user_id)
+            DeviceAssignmentORM.space_id.in_(select(SpaceMemberORM.space_id).where(SpaceMemberORM.user_id == user_id))
         )
         result = await self._session.execute(stmt)
         return result.scalars().all()

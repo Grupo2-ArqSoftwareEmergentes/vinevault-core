@@ -58,11 +58,7 @@ async def _verify_cellar_ownership_and_get(
             detail="Space associated with wine cellar not found",
         )
 
-    if space.owner_user_id.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Wine cellar does not belong to user",
-        )
+    # The router guard has already validated membership and ANALYZE permission.
 
     return wine_cellar
 

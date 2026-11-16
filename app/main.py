@@ -2,7 +2,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
+from .core.space_security import authorize_space_request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import settings
@@ -204,16 +205,16 @@ app.add_middleware(
 setup_exception_handlers(app)
 
 app.include_router(iam_router.router)
-app.include_router(device_router)
-app.include_router(alert_router)
+app.include_router(device_router, dependencies=[Depends(authorize_space_request)])
+app.include_router(alert_router, dependencies=[Depends(authorize_space_request)])
 app.include_router(edge_router)
 app.include_router(organization_router)
-app.include_router(space_router)
-app.include_router(user_context_router)
-app.include_router(threshold_router)
+app.include_router(space_router, dependencies=[Depends(authorize_space_request)])
+app.include_router(user_context_router, dependencies=[Depends(authorize_space_request)])
+app.include_router(threshold_router, dependencies=[Depends(authorize_space_request)])
 app.include_router(telemetry_router)
-app.include_router(wine_cellar_router)
-app.include_router(intelligence_router)
+app.include_router(wine_cellar_router, dependencies=[Depends(authorize_space_request)])
+app.include_router(intelligence_router, dependencies=[Depends(authorize_space_request)])
 
 
 @app.get("/")

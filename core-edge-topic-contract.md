@@ -21,6 +21,8 @@ Este documento resume lo que el `edge` espera recibir y enviar por Kafka para qu
 
 ## Reglas de interoperabilidad
 
+- Los permisos de usuarios del Core se validan ahora por membresía/rol del espacio. Esto no cambia la autenticación API-key del Edge ni los campos Kafka de propietario existentes, que siguen siendo metadatos legacy y no una autorización de usuario.
+
 - El edge acepta algunos payloads en `snake_case` y también en `camelCase`, especialmente en provisioning e incidents.
 - En `vinevault.provisioning.devices.changed`, el edge valida que existan al menos `device_id`, `hardware_id`, `api_key` y `status`.
 - En `vinevault.device.commands.pending`, el edge resuelve el comando por `device_id` y luego lo asocia con `hardware_id`.

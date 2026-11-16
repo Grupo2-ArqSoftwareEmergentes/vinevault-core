@@ -1,6 +1,7 @@
 # claim_device_request.py
 from pydantic import BaseModel, Field, field_validator
 from uuid import UUID
+from app.device.domain.models.value_objects.space_access import SpaceType
 
 
 class ClaimDeviceRequest(BaseModel):
@@ -52,6 +53,12 @@ from pydantic import BaseModel, Field
 
 class CreateSpaceRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
+    space_type: SpaceType = SpaceType.COLLECTOR
+
+    @field_validator("space_type", mode="before")
+    @classmethod
+    def normalize_space_type(cls, value):
+        return value.upper() if isinstance(value, str) else value
 
     @field_validator("name")
     @classmethod
@@ -59,6 +66,10 @@ class CreateSpaceRequest(BaseModel):
         if not value.strip():
             raise ValueError("Space name must not be blank")
         return value.strip()
+
+
+class OnboardSpaceRequest(CreateSpaceRequest):
+    space_type: SpaceType
 
 
 # update_organization_name_request.py

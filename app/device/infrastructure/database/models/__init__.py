@@ -5,3 +5,4 @@ from .device_assignment_orm import DeviceAssignmentORM
 from .device_command_orm import DeviceCommandORM
 from .organization_orm import OrganizationORM
 from .space_orm import SpaceORM
+from .space_member_orm import SpaceMemberORM
