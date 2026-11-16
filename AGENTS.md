@@ -8,6 +8,7 @@
 - Containerized app: `docker compose -f docker-compose-prod.yml up --build`. Do not run both compose stacks together: they use the same database container name and host port 5432.
 - Personal-context integration tests: set `TEST_DATABASE_URL` to an explicit `postgresql+asyncpg://` URL, then run `python -B -m unittest discover -s tests -p test_personal_context.py -v`. They create/drop unique temporary schemas, require schema-creation privileges, and bypass app lifespan/seeds. Without that variable they skip. No CI or lint/typecheck configuration is present.
 - For focused API checks, inspect `/docs` or `/openapi.json`. `GET /api/v1/iam/health` is a basic service check, not proof of Kafka delivery. IAM login uses form fields `username` and `password`, not JSON.
+- AI-only tests need no database/key: `python -B -m unittest discover -s tests -p test_inventory_intelligence.py -v`. All AI tests mock Google; never use a real key for automated verification.
 
 ## Startup and configuration traps
 
@@ -25,6 +26,7 @@
 - Several device handler implementations live directly in `app/device/applications/command_handlers/__init__.py`; check there before assuming a class is missing or adding a duplicate.
 - Both space-creation routes use `PersonalSpaceService` and `SpaceCreationUnitOfWork`: new organization (if needed), space, and default cellar commit together. Its space/cellar repositories use `auto_commit=False`; do not reintroduce repository commits in this flow. Creation responses add `default_wine_cellar`; ordinary space read/update responses do not.
 - Space deletion uses `SpaceDeletionService`/`SpaceDeletionUnitOfWork`: lock and authorize the space, reject assigned devices, then delete inventories, cellars and space in one transaction. Bulk cellar deletion is explicit to support existing FKs without cascade; never replace it with per-cellar repository calls that commit early.
+- AI stock analysis keeps JSON by default; SSE is opt-in via Accept header or `stream=true`. Empty inventory always returns JSON before initializing Google. Keep the SQL snapshot bounded and never retry after text was emitted; see `docs/inventory-ai.md` for the wire contract and limits.
 
 ## Edge integration
 

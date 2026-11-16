@@ -157,6 +157,10 @@ $env:TEST_DATABASE_URL='postgresql+asyncpg://postgres:postgres@localhost:5432/vi
 
 Las pruebas crean y eliminan un esquema temporal único por caso; no usan las tablas existentes ni ejecutan el arranque/seeds de la aplicación. El usuario de pruebas necesita permisos para crear esquemas. Sin `TEST_DATABASE_URL`, las pruebas se omiten. Cubren JWT, aislamiento entre usuarios, filtros, compatibilidad de rutas, integridad referencial, creación concurrente sin duplicar organizaciones, una cava inicial por espacio y rollback completo ante fallos posteriores a la inserción de la cava.
 
+## Análisis de inventario con IA
+
+`POST /api/v1/ai/analyze-stock` conserva la respuesta JSON existente y omite Google cuando la cava no tiene registros de inventario. Para resultados incrementales, solicitar `Accept: text/event-stream` o `?stream=true`; el frontend debe procesar eventos SSE. Configuración, errores y contrato de integración: [docs/inventory-ai.md](docs/inventory-ai.md).
+
 ## Detener los servicios
 
 Detén la API con `Ctrl+C`. Para detener la infraestructura sin eliminar sus contenedores ni volúmenes:

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
@@ -13,3 +13,5 @@ class AnalysisResult(BaseModel):
     wine_cellar_id: UUID
     tokens_used: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    status: Literal["completed", "empty"] = "completed"
+    message: str | None = None

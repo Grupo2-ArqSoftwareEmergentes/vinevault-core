@@ -2,12 +2,10 @@ from typing import Optional
 from uuid import UUID
 
 from app.wine_cellar.infrastructure.database.repositories import WineCellarRepository, WineInventoryRepository
-from app.device.infrastructure.database.repositories import SpaceRepository
 from app.device.interfaces.acl import DeviceContextFacade
 from app.inventory_intelligence.interfaces.acl import (
     InventoryDataFacade,
     WineCellarIntelligenceData,
-    WineInventorySummary,
     DeviceStatusSummary,
 )
 
@@ -17,39 +15,24 @@ class InventoryDataFacadeImpl(InventoryDataFacade):
         self,
         wine_cellar_repo: WineCellarRepository,
         wine_inventory_repo: WineInventoryRepository,
-        space_repo: SpaceRepository,
         device_context_facade: DeviceContextFacade,
     ):
         self._wine_cellar_repo = wine_cellar_repo
         self._wine_inventory_repo = wine_inventory_repo
-        self._space_repo = space_repo
         self._device_context_facade = device_context_facade
 
-    async def get_cellar_data_for_intelligence(self, wine_cellar_id: UUID) -> Optional[WineCellarIntelligenceData]:
-        # 1. Obtener la bodega de vino
+    async def get_cellar_data_for_intelligence(
+        self, wine_cellar_id: UUID, *, include_device: bool = False,
+    ) -> Optional[WineCellarIntelligenceData]:
         wine_cellar = await self._wine_cellar_repo.find_by_id(wine_cellar_id)
         if not wine_cellar:
             return None
 
-        # 2. Obtener el space para sacar el nombre
-        space = await self._space_repo.find_by_id(wine_cellar.space_id)
-        space_name = space.name if space else "Espacio Desconocido"
+        snapshot = await self._wine_inventory_repo.get_analysis_snapshot(wine_cellar_id)
 
-        # 3. Obtener el inventario completo
-        inventory_items = await self._wine_inventory_repo.find_all_by_wine_cellar_id(wine_cellar_id)
-        inventory_summaries = [
-            WineInventorySummary(
-                wine_name=item.wine_name,
-                wine_type=item.wine_type,
-                age_years=item.age_years,
-                quantity=item.quantity,
-            )
-            for item in inventory_items
-        ]
-
-        # 4. Obtener información del dispositivo vinculado si existe
+        # Inventory-only requests never fetch device metadata.
         device_summary = None
-        if wine_cellar.device_id:
+        if snapshot.item_count and include_device and wine_cellar.device_id:
             assignment = await self._device_context_facade.get_assignment(wine_cellar.device_id)
             if assignment:
                 # Filtrar la configuración de thresholds para enviar solo lo necesario
@@ -70,8 +53,7 @@ class InventoryDataFacadeImpl(InventoryDataFacade):
         return WineCellarIntelligenceData(
             id=wine_cellar.id,
             name=wine_cellar.name,
-            description=wine_cellar.description,
-            space_name=space_name,
-            inventory=inventory_summaries,
+            space_name="",
+            **snapshot.model_dump(),
             device=device_summary,
         )

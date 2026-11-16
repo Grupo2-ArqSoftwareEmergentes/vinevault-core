@@ -1,6 +1,7 @@
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 load_dotenv()
@@ -34,8 +35,9 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
-    GEMINI_MAX_OUTPUT_TOKENS: int = 2048
-    GEMINI_TEMPERATURE: float = 0.3
+    GEMINI_MAX_OUTPUT_TOKENS: int = 500
+    GEMINI_TEMPERATURE: float = 0.0
+    GEMINI_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=60)
 
     @property
     def ASYNC_DATABASE_URL(self) -> str:

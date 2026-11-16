@@ -1,16 +1,50 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.wine_cellar.domain.models import WineInventoryItem
+from app.wine_cellar.domain.models.inventory_snapshot import (
+    InventorySnapshot, InventoryItemSummary, InventoryCategorySummary,
+)
 from ..models.wine_inventory_item_orm import WineInventoryItemORM
 
 
 class WineInventoryRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
+
+    async def get_analysis_snapshot(self, wine_cellar_id: UUID) -> InventorySnapshot:
+        """Bounded projection: never load a large cellar into an LLM prompt or ORM list."""
+        item = WineInventoryItemORM
+        scope = item.wine_cellar_id == wine_cellar_id
+        result = await self._session.execute(select(
+            func.count(item.id), func.coalesce(func.sum(item.quantity), 0),
+            func.min(item.age_years), func.max(item.age_years),
+        ).where(scope))
+        count, quantity, min_age, max_age = result.one()
+        snapshot = InventorySnapshot(
+            item_count=count, total_quantity=quantity, min_age_years=min_age, max_age_years=max_age,
+        )
+        if count == 0:
+            return snapshot
+        if count <= 40:
+            result = await self._session.execute(select(
+                item.wine_name, item.wine_type, item.age_years, item.quantity,
+            ).where(scope).order_by(item.id).limit(40))
+            snapshot.inventory = [InventoryItemSummary(**dict(row._mapping)) for row in result]
+        else:
+            result = await self._session.execute(select(
+                item.wine_type, func.count(item.id).label("items"),
+                func.sum(item.quantity).label("quantity"),
+            ).where(scope).group_by(item.wine_type).order_by(
+                func.sum(item.quantity).desc(), item.wine_type,
+            ).limit(12))
+            snapshot.categories = [InventoryCategorySummary(**dict(row._mapping)) for row in result]
+            snapshot.other_items = count - sum(category.items for category in snapshot.categories)
+            snapshot.other_quantity = quantity - sum(category.quantity for category in snapshot.categories)
+        return snapshot
 
     async def find_by_id(self, wine_inventory_item_id: UUID) -> Optional[WineInventoryItem]:
         stmt = select(WineInventoryItemORM).where(WineInventoryItemORM.id == wine_inventory_item_id)

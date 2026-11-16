@@ -368,22 +368,11 @@ from .inventory_intelligence.interfaces.acl import InventoryDataFacade
 from .inventory_intelligence.applications.acl import InventoryDataFacadeImpl
 from .inventory_intelligence.applications.analysis_application_service import AnalysisApplicationService
 
-try:
-    from .inventory_intelligence.infrastructure.gemini.gemini_client import GeminiClientImpl
-except ModuleNotFoundError:
-    GeminiClientImpl = None
+from .inventory_intelligence.infrastructure.gemini.gemini_client import GeminiClientImpl
 
 
 def get_gemini_client() -> GeminiService:
-    """Obtener cliente oficial de Google Gemini 1.5 Flash"""
-    if GeminiClientImpl is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "The optional dependency 'google-genai' is not installed. "
-                "Install requirements.txt to enable inventory intelligence."
-            ),
-        )
+    """The adapter initializes Google's SDK only for a nonempty inventory."""
     return GeminiClientImpl()
 
 
@@ -395,7 +384,6 @@ def get_inventory_data_facade(
     return InventoryDataFacadeImpl(
         wine_cellar_repo=get_wine_cellar_repository(db),
         wine_inventory_repo=get_wine_inventory_repository(db),
-        space_repo=get_space_repository(db),
         device_context_facade=get_device_context_facade(device_query_service),
     )
 

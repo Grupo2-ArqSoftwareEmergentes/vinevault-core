@@ -23,6 +23,7 @@ from app.device.infrastructure.database.repositories.space_repository import Spa
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
 from app.wine_cellar.infrastructure.database.models.wine_inventory_item_orm import WineInventoryItemORM
 from app.wine_cellar.infrastructure.database.repositories.wine_cellar_repository import WineCellarRepository
+from app.wine_cellar.infrastructure.database.repositories.wine_inventory_repository import WineInventoryRepository
 from app.main import app
 
 
@@ -379,6 +380,73 @@ class PersonalContextTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as session:
             for model in (SpaceORM, WineCellarORM, WineInventoryItemORM, DeviceAssignmentORM, DeviceORM):
                 self.assertEqual(await session.scalar(select(func.count()).select_from(model)), 1)
+
+    async def test_ai_empty_cellar_early_exit_uses_real_database_without_google(self):
+        from app.inventory_intelligence.infrastructure.gemini.gemini_client import GeminiClientImpl
+        from app.inventory_intelligence.applications.prompt_builder import PromptBuilder
+
+        space = await self.create_space()
+        cellar_id = space["default_wine_cellar"]["id"]
+        with patch.object(GeminiClientImpl, "_create_client") as google, patch.object(PromptBuilder, "build_prompt") as prompt:
+            for route in ("analyze-stock", "recommend-purchases", "monthly-report", "chat"):
+                payload = {"wine_cellar_id": cellar_id}
+                if route == "chat":
+                    payload["user_query"] = "Analiza mi inventario"
+                response = await self.client.post(
+                    f"/api/v1/ai/{route}", json=payload, headers=self.headers(),
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["status"], "empty")
+                self.assertEqual(response.json()["tokens_used"], 0)
+                self.assertTrue(response.json()["content"])
+            google.assert_not_called()
+            prompt.assert_not_called()
+
+    async def test_ai_inventory_snapshot_bounds_rows_and_aggregates_large_cellars(self):
+        space = await self.create_space()
+        cellar_id = UUID(space["default_wine_cellar"]["id"])
+        async with self.sessions() as session:
+            repository = WineInventoryRepository(session)
+            self.assertEqual((await repository.get_analysis_snapshot(cellar_id)).item_count, 0)
+            session.add_all([
+                WineInventoryItemORM(
+                    wine_cellar_id=cellar_id, wine_name=f"Vino {i}", wine_type=f"Tipo {i % 15:02}",
+                    age_years=i % 8, quantity=i + 1,
+                ) for i in range(40)
+            ])
+            await session.commit()
+            snapshot = await repository.get_analysis_snapshot(cellar_id)
+            self.assertEqual(snapshot.item_count, 40)
+            self.assertEqual(len(snapshot.inventory), 40)
+            self.assertEqual(snapshot.total_quantity, sum(range(1, 41)))
+            session.add_all([
+                WineInventoryItemORM(
+                    wine_cellar_id=cellar_id, wine_name=f"Vino {i}", wine_type=f"Tipo {i % 15:02}",
+                    age_years=i % 8, quantity=i + 1,
+                ) for i in range(40, 65)
+            ])
+            await session.commit()
+            snapshot = await repository.get_analysis_snapshot(cellar_id)
+            self.assertEqual(snapshot.item_count, 65)
+            self.assertEqual(snapshot.inventory, [])
+            self.assertEqual(len(snapshot.categories), 12)
+            self.assertEqual(sum(category.items for category in snapshot.categories) + snapshot.other_items, 65)
+            self.assertEqual(
+                sum(category.quantity for category in snapshot.categories) + snapshot.other_quantity,
+                sum(range(1, 66)),
+            )
+            self.assertEqual((snapshot.min_age_years, snapshot.max_age_years), (0, 7))
+
+    async def test_ai_snapshot_does_not_include_other_cellars_or_tenants(self):
+        own = await self.create_space()
+        foreign = await self.create_space(user_id=2)
+        await self.create_inventory(foreign["default_wine_cellar"], user_id=2)
+        async with self.sessions() as session:
+            snapshot = await WineInventoryRepository(session).get_analysis_snapshot(
+                UUID(own["default_wine_cellar"]["id"])
+            )
+            self.assertEqual(snapshot.item_count, 0)
+            self.assertEqual(snapshot.total_quantity, 0)
 
 
 if __name__ == "__main__":
