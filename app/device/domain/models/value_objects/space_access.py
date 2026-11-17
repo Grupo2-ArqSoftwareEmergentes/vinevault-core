@@ -9,7 +9,6 @@ class SpaceType(str, Enum):
 class SubscriptionPlan(str, Enum):
     FREE = "FREE"
     PRO = "PRO"
-    BUSINESS = "BUSINESS"
 
 
 class SubscriptionStatus(str, Enum):

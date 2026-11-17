@@ -10,6 +10,7 @@ from app.device.infrastructure.database.models.space_member_orm import SpaceMemb
 from .wine_inventory_repository import WineInventoryRepository
 from ..models.wine_cellar_orm import WineCellarORM
 from ..models.wine_inventory_item_orm import WineInventoryItemORM
+from app.shared.infrastructure.database.resource_quota_repository import ResourceQuotaRepository
 
 
 class WineCellarRepository:
@@ -49,6 +50,11 @@ class WineCellarRepository:
         return [orm.to_domain() for orm in result.scalars().all()]
 
     async def save(self, wine_cellar: WineCellar) -> WineCellar:
+        quotas = ResourceQuotaRepository(self._session)
+        space = await quotas.lock_space(wine_cellar.space_id)
+        exists = await self._session.scalar(select(WineCellarORM.id).where(WineCellarORM.id == wine_cellar.id))
+        if exists is None:
+            await quotas.require_cellar_slot(space)
         orm = await self._session.merge(WineCellarORM.from_domain(wine_cellar))
         await self._session.flush()
         if self._auto_commit:

@@ -15,6 +15,7 @@ class Space(BaseModel):
     space_type: SpaceType = SpaceType.COLLECTOR
     subscription_plan: SubscriptionPlan = SubscriptionPlan.FREE
     subscription_status: SubscriptionStatus = SubscriptionStatus.ACTIVE
+    extra_cellars_allowance: int = Field(default=0, ge=0)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

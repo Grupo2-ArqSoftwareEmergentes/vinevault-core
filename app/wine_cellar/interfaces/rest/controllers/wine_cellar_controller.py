@@ -16,6 +16,8 @@ from app.dependencies import (
 )
 from app.wine_cellar.applications.inventory_stock_service import InventoryItemNotFoundError, InsufficientStockError
 from ..resources.stock_movement_resource import StockExitRequest, StockMovementResponse
+from ..resources.request_models import CreateWineCellarInSpaceRequest
+from ..resources.wine_inventory_request import CreateWineItemInCellarRequest
 from app.core.database import AsyncSessionLocal
 from app.wine_cellar.applications import InventoryExcelError, WineInventoryExcelService
 from app.wine_cellar.applications.inventory_excel_service import XLSX_MIME_TYPE
@@ -105,6 +107,16 @@ async def create_wine_cellar(
     )
     saved = await wine_cellar_repo.save(wine_cellar)
     return WineCellarResponse.from_domain(saved)
+
+
+@router.post("/wine-cellars", status_code=status.HTTP_201_CREATED)
+async def create_wine_cellar_direct(
+    request: CreateWineCellarInSpaceRequest,
+    user_id: int = Depends(get_current_user_id),
+    space_repo = Depends(get_space_repository),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+) -> WineCellarResponse:
+    return await create_wine_cellar(request.space_id, request, user_id, space_repo, wine_cellar_repo)
 
 
 @router.put("/wine-cellars/{wine_cellar_id}")
@@ -291,6 +303,18 @@ async def create_wine_inventory_item(
     )
     saved = await inventory_repo.save(inventory_item)
     return WineInventoryItemResponse.from_domain(saved)
+
+
+@router.post("/wine-items", status_code=status.HTTP_201_CREATED)
+async def create_wine_item_direct(
+    request: CreateWineItemInCellarRequest,
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+    inventory_repo = Depends(get_wine_inventory_repository),
+) -> WineInventoryItemResponse:
+    body = CreateWineInventoryItemRequest.model_validate(request.model_dump(exclude={"wine_cellar_id"}))
+    return await create_wine_inventory_item(request.wine_cellar_id, body, user_id, wine_cellar_repo, space_repo, inventory_repo)
 
 
 @router.put("/wine-cellars/{wine_cellar_id}/inventory/{inventory_item_id}")

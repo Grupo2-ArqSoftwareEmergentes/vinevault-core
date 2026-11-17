@@ -1,4 +1,5 @@
 from pydantic import Field, model_validator
+from uuid import UUID
 
 from app.wine_cellar.domain.models.wine_item_details import WineItemDetails
 
@@ -6,6 +7,10 @@ from app.wine_cellar.domain.models.wine_item_details import WineItemDetails
 class CreateWineInventoryItemRequest(WineItemDetails):
     name: str = Field(min_length=1, max_length=255)
     quantity: int = Field(default=0, ge=0, le=2147483647)
+
+
+class CreateWineItemInCellarRequest(CreateWineInventoryItemRequest):
+    wine_cellar_id: UUID
 
 
 class UpdateWineInventoryItemRequest(WineItemDetails):

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 import uuid
 
-from sqlalchemy import DateTime, String, ForeignKey, Enum
+from sqlalchemy import DateTime, String, ForeignKey, Enum, Integer, CheckConstraint
 from app.device.domain.models.value_objects.space_access import SpaceType, SubscriptionPlan, SubscriptionStatus
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -12,6 +12,7 @@ from .base import Base
 
 class SpaceORM(Base):
     __tablename__ = "spaces"
+    __table_args__ = (CheckConstraint("extra_cellars_allowance >= 0", name="space_extra_cellars_nonnegative"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -20,6 +21,7 @@ class SpaceORM(Base):
     space_type: Mapped[SpaceType] = mapped_column(Enum(SpaceType, native_enum=False, create_constraint=True, name="space_type"), nullable=False, server_default="COLLECTOR")
     subscription_plan: Mapped[SubscriptionPlan] = mapped_column(Enum(SubscriptionPlan, native_enum=False, create_constraint=True, name="space_subscription_plan"), nullable=False, server_default="FREE")
     subscription_status: Mapped[SubscriptionStatus] = mapped_column(Enum(SubscriptionStatus, native_enum=False, create_constraint=True, name="space_subscription_status"), nullable=False, server_default="ACTIVE")
+    extra_cellars_allowance: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -35,6 +37,7 @@ class SpaceORM(Base):
             space_type=self.space_type,
             subscription_plan=self.subscription_plan,
             subscription_status=self.subscription_status,
+            extra_cellars_allowance=self.extra_cellars_allowance,
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
@@ -49,6 +52,7 @@ class SpaceORM(Base):
             space_type=space.space_type,
             subscription_plan=space.subscription_plan,
             subscription_status=space.subscription_status,
+            extra_cellars_allowance=space.extra_cellars_allowance,
             created_at=space.created_at,
             updated_at=space.updated_at,
         )

@@ -13,7 +13,6 @@ from app.dependencies import (
 from app.device.applications.personal_space_service import (
     OrganizationAccessDeniedError,
     OrganizationNotFoundError,
-    SpaceLimitReachedError,
 )
 from app.device.domain.models.value_objects.space_access import SpaceType
 from ..resources.request_models import OnboardSpaceRequest
@@ -94,8 +93,6 @@ async def _create_space_with_cellar(
 ):
     try:
         created = await service.create(user_id, name, organization_id, space_type)
-    except SpaceLimitReachedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except OrganizationNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except OrganizationAccessDeniedError as exc:
@@ -118,7 +115,7 @@ async def update_space_name(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Space not found")
 
     space.update_name(request.name)
-    saved = await space_repo.save(space)
+    saved = await space_repo.rename(space.id, space.name)
     return SpaceResponse.from_domain(saved)
 
 

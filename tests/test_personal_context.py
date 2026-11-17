@@ -30,6 +30,10 @@ from app.iam.models import User
 
 @unittest.skipUnless(os.getenv("TEST_DATABASE_URL"), "Set TEST_DATABASE_URL to run PostgreSQL checks")
 class PostgresAPITestCase(unittest.IsolatedAsyncioTestCase):
+    # Non-quota suites get explicit purchased capacity for their multi-space/cellar fixtures.
+    extra_spaces_allowance = 10
+    extra_cellars_allowance = 10
+
     async def asyncSetUp(self):
         self.schema = f"test_personal_context_{uuid4().hex}"
         url = os.environ["TEST_DATABASE_URL"]
@@ -44,7 +48,7 @@ class PostgresAPITestCase(unittest.IsolatedAsyncioTestCase):
             await connection.run_sync(Base.metadata.create_all)
         async with self.sessions() as session:
             session.add_all([
-                User(id=i, username=f"testuser{i}", email=f"test{i}@example.com", hashed_password="not-used", full_name=f"User {i}")
+                User(id=i, username=f"testuser{i}", email=f"test{i}@example.com", hashed_password="not-used", full_name=f"User {i}", extra_spaces_allowance=self.extra_spaces_allowance)
                 for i in (1, 2, 3)
             ])
             await session.flush()
@@ -75,7 +79,14 @@ class PostgresAPITestCase(unittest.IsolatedAsyncioTestCase):
             "/api/v1/spaces", json={"name": name}, headers=self.headers(user_id)
         )
         self.assertEqual(response.status_code, 201, response.text)
-        return response.json()
+        resource = response.json()
+        if self.extra_cellars_allowance:
+            async with self.sessions() as session:
+                space = await session.get(SpaceORM, UUID(resource["id"]))
+                space.extra_cellars_allowance = self.extra_cellars_allowance
+                await session.commit()
+            resource["extra_cellars_allowance"] = self.extra_cellars_allowance
+        return resource
 
     async def create_cellar(self, space, user_id=1):
         response = await self.client.post(
@@ -150,7 +161,7 @@ class PersonalContextTests(PostgresAPITestCase):
             response = await self.client.get("/api/v1/user/context", headers=self.headers())
         finally:
             event.remove(self.engine.sync_engine, "before_cursor_execute", record_statement)
-        self.assertEqual(len(statements), 3, statements)  # active identity + two directory queries
+        self.assertEqual(len(statements), 6, statements)  # identity, directory and bounded quota aggregates
         self.assertEqual(response.status_code, 200)
         context = response.json()
         self.assertEqual(len(context["spaces"]), 2)
@@ -186,7 +197,8 @@ class PersonalContextTests(PostgresAPITestCase):
         )
         self.assertEqual(response.status_code, 403)
         response = await self.client.get("/api/v1/user/context", headers=self.headers(3))
-        self.assertEqual(response.json(), {"spaces": [], "wine_cellars": []})
+        self.assertEqual(response.json()["spaces"], [])
+        self.assertEqual(response.json()["wine_cellars"], [])
 
     async def test_jwt_is_required_and_invalid_input_does_not_create_organization(self):
         for headers in ({}, {"Authorization": "Bearer invalid"}):
@@ -203,16 +215,20 @@ class PersonalContextTests(PostgresAPITestCase):
             self.assertEqual(await session.scalar(select(func.count()).select_from(OrganizationORM)), 0)
 
     async def test_parallel_first_spaces_share_organization_and_limit_is_preserved(self):
+        async with self.sessions() as session:
+            user = await session.get(User, 1)
+            user.extra_spaces_allowance = 0
+            await session.commit()
         responses = await asyncio.gather(*[
-            self.client.post("/api/v1/spaces", json={"name": f"Espacio {i}"}, headers=self.headers())
+            self.client.post("/api/v1/spaces", json={"name": f"Espacio {i}", "space_type": "COLLECTOR" if i % 2 else "BUSINESS"}, headers=self.headers())
             for i in range(6)
         ])
-        self.assertEqual(sorted(r.status_code for r in responses), [201] * 5 + [409])
+        self.assertEqual(sorted(r.status_code for r in responses), [201] * 2 + [403] * 4)
         self.assertEqual(len({r.json()["organization_id"] for r in responses if r.status_code == 201}), 1)
         async with self.sessions() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(OrganizationORM)), 1)
-            self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 5)
-            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 5)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 2)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 2)
 
     async def test_space_can_be_deleted_with_its_default_cellar(self):
         space = await self.create_space()
@@ -285,6 +301,10 @@ class PersonalContextTests(PostgresAPITestCase):
                 self.assertEqual(await session.scalar(select(func.count()).select_from(model)), 0)
 
     async def test_mixed_creation_routes_share_space_limit(self):
+        async with self.sessions() as session:
+            user = await session.get(User, 1)
+            user.extra_spaces_allowance = 0
+            await session.commit()
         response = await self.client.post(
             "/api/v1/organizations", json={"name": "Personal"}, headers=self.headers()
         )
@@ -292,13 +312,13 @@ class PersonalContextTests(PostgresAPITestCase):
         responses = await asyncio.gather(*[
             self.client.post(
                 "/api/v1/spaces" if i % 2 else f"/api/v1/organizations/{org_id}/spaces",
-                json={"name": f"Espacio {i}"}, headers=self.headers(),
+                json={"name": f"Espacio {i}", "space_type": "COLLECTOR" if i % 2 else "BUSINESS"}, headers=self.headers(),
             ) for i in range(6)
         ])
-        self.assertEqual(sorted(r.status_code for r in responses), [201] * 5 + [409])
+        self.assertEqual(sorted(r.status_code for r in responses), [201] * 2 + [403] * 4)
         async with self.sessions() as session:
-            self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 5)
-            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 5)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 2)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WineCellarORM)), 2)
 
     async def test_legacy_creation_rejects_foreign_organization_without_side_effects(self):
         foreign = await self.create_space(user_id=2)

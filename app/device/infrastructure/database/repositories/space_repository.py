@@ -1,7 +1,7 @@
 from typing import Optional, List
 from uuid import UUID
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.device.domain.models import Space
@@ -50,6 +50,14 @@ class SpaceRepository:
         result = await self._session.execute(select(SpaceORM).where(SpaceORM.id == orm.id))
         persisted = result.scalar_one()
         return persisted.to_domain()
+
+    async def rename(self, space_id: UUID, name: str) -> Space:
+        # Never merge stale plan/allowance fields from a rename request over a billing update.
+        result = await self._session.execute(update(SpaceORM).where(SpaceORM.id == space_id)
+            .values(name=name).returning(SpaceORM).execution_options(populate_existing=True))
+        orm = result.scalar_one()
+        await self._session.commit()
+        return orm.to_domain()
 
     async def delete(self, space_id: UUID) -> None:
         await self._session.execute(delete(SpaceORM).where(SpaceORM.id == space_id))

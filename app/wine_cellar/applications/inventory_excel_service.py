@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.wine_cellar.infrastructure.database.models import WineInventoryItemORM
 from app.wine_cellar.infrastructure.database.repositories import WineInventoryRepository
+from app.shared.infrastructure.database.resource_quota_repository import ResourceQuotaRepository
+from app.shared.quota_policy import validate_inventory_growth
 
 
 XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -89,6 +91,9 @@ class WineInventoryExcelService:
         created = 0
         updated = 0
         async with session.begin():
+            quotas = ResourceQuotaRepository(session)
+            space = await quotas.lock_for_cellar(wine_cellar_id)
+            before = await quotas.usage(space.id) if space.subscription_plan.value == "FREE" else None
             for parsed_row in parsed_rows:
                 if parsed_row.item_id is None:
                     session.add(
@@ -104,7 +109,10 @@ class WineInventoryExcelService:
                     continue
 
                 existing = await session.scalar(
-                    select(WineInventoryItemORM).where(WineInventoryItemORM.id == parsed_row.item_id).with_for_update()
+                    select(WineInventoryItemORM).where(
+                        WineInventoryItemORM.id == parsed_row.item_id,
+                        WineInventoryItemORM.wine_cellar_id == wine_cellar_id,
+                    ).with_for_update()
                 )
                 if existing is None:
                     raise InventoryExcelError(
@@ -120,6 +128,10 @@ class WineInventoryExcelService:
                 existing.age_years = parsed_row.age_years
                 existing.quantity = parsed_row.quantity
                 updated += 1
+
+            await session.flush()
+            if before is not None:
+                validate_inventory_growth(space.subscription_plan.value, space.space_type.value, before, await quotas.usage(space.id))
 
         return InventoryImportResult(
             sheet_name=sheet_name,

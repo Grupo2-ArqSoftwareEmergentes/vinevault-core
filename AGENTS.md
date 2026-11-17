@@ -30,6 +30,7 @@
 - AI stock analysis keeps JSON by default; SSE is opt-in via Accept header or `stream=true`. Empty inventory always returns JSON before initializing Google. Keep the SQL snapshot bounded and never retry after text was emitted; see `docs/inventory-ai.md` for the wire contract and limits.
 - Inventory uses physical `wine_inventory_items.name`; ORM/API retain `wine_name` as a legacy alias, not a second column. Advanced details, wine type and legacy age are nullable. Updates preserve omitted fields; explicit null clears optional values. Decimal JSON values are strings. See `docs/wine-inventory.md` before changing schemas/imports.
 - Audited stock exits use `InventoryStockService`/`StockUnitOfWork`: lock the scoped item, subtract quantity and flush history before one commit. Never use a read/modify/write without locking or call an auto-committing repository inside that UoW. Movement history cascades on item deletion; absolute PUT/import counts do not create exit records.
+- Quotas replace the legacy five-spaces-per-organization cap. Account slots count OWNER memberships; other roles do not consume them. Paid extras allow duplicate FREE purposes. Writers must lock account/space before counts and use space -> item lock order, including imports/stock exits. Never commit before validation; see `docs/resource-quotas.md` for formulas, error codes and context fields.
 
 ## Edge integration
 

@@ -9,6 +9,8 @@ from app.wine_cellar.domain.models.inventory_snapshot import (
     InventorySnapshot, InventoryItemSummary, InventoryCategorySummary,
 )
 from ..models.wine_inventory_item_orm import WineInventoryItemORM
+from app.shared.infrastructure.database.resource_quota_repository import ResourceQuotaRepository
+from app.shared.quota_policy import validate_inventory_growth
 
 
 class WineInventoryRepository:
@@ -54,6 +56,10 @@ class WineInventoryRepository:
         if wine_cellar_id is not None:
             stmt = stmt.where(WineInventoryItemORM.wine_cellar_id == wine_cellar_id)
         if for_update:
+            # All writers use parent-space -> item lock ordering (including stock exits).
+            cellar_id = wine_cellar_id or await self._session.scalar(select(WineInventoryItemORM.wine_cellar_id).where(WineInventoryItemORM.id == wine_inventory_item_id))
+            if cellar_id is not None:
+                await ResourceQuotaRepository(self._session).lock_for_cellar(cellar_id)
             stmt = stmt.with_for_update()
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
@@ -70,8 +76,13 @@ class WineInventoryRepository:
         return [orm.to_domain() for orm in orms]
 
     async def save(self, wine_item: WineInventoryItem) -> WineInventoryItem:
+        quotas = ResourceQuotaRepository(self._session)
+        space = await quotas.lock_for_cellar(wine_item.wine_cellar_id)
+        before = await quotas.usage(space.id) if space.subscription_plan.value == "FREE" else None
         orm = await self._session.merge(WineInventoryItemORM.from_domain(wine_item))
         await self._session.flush()
+        if before is not None:
+            validate_inventory_growth(space.subscription_plan.value, space.space_type.value, before, await quotas.usage(space.id))
         if self._auto_commit:
             await self._session.commit()
         result = await self._session.execute(select(WineInventoryItemORM).where(WineInventoryItemORM.id == orm.id))

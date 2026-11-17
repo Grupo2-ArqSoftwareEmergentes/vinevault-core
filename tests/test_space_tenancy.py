@@ -91,7 +91,7 @@ class SpaceTenancyTests(PostgresAPITestCase):
         await self.add_member(shared, SpaceRole.WAITER, user_id=1)
         async with self.sessions() as session:
             stored = await session.get(SpaceORM, UUID(shared["id"]))
-            stored.subscription_plan = "BUSINESS"
+            stored.subscription_plan = "PRO"
             stored.subscription_status = "EXPIRED"
             await session.commit()
         context = (await self.client.get("/api/v1/user/context", headers=self.headers())).json()
@@ -151,7 +151,8 @@ class SpaceTenancyTests(PostgresAPITestCase):
         response = await self.client.get(f"/api/v1/spaces/{space['id']}", headers=self.headers())
         self.assertEqual(response.status_code, 403)
         context = await self.client.get("/api/v1/user/context", headers=self.headers())
-        self.assertEqual(context.json(), {"spaces": [], "wine_cellars": []})
+        self.assertEqual(context.json()["spaces"], [])
+        self.assertEqual(context.json()["wine_cellars"], [])
 
     async def test_revoked_membership_and_refresh_token_are_denied(self):
         space = await self.create_space()
@@ -224,7 +225,9 @@ class SpaceTenancyTests(PostgresAPITestCase):
         response = await self.client.post("/api/v1/iam/login", data={"username": "new@example.com", "password": "password123"})
         self.assertEqual(response.status_code, 200, response.text)
         headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
-        self.assertEqual((await self.client.get("/api/v1/user/context", headers=headers)).json(), {"spaces": [], "wine_cellars": []})
+        context = (await self.client.get("/api/v1/user/context", headers=headers)).json()
+        self.assertEqual(context["spaces"], [])
+        self.assertEqual(context["wine_cellars"], [])
         async with self.sessions() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(SpaceORM)), 0)
 

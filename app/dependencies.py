@@ -113,6 +113,11 @@ def get_wine_inventory_repository(db: AsyncSession = Depends(get_db)) -> WineInv
     return WineInventoryRepository(db)
 
 
+def get_resource_quota_repository(db: AsyncSession = Depends(get_db)):
+    from .shared.infrastructure.database.resource_quota_repository import ResourceQuotaRepository
+    return ResourceQuotaRepository(db)
+
+
 def get_inventory_stock_service(db: AsyncSession = Depends(get_db)):
     from .wine_cellar.applications.inventory_stock_service import InventoryStockService
     from .wine_cellar.infrastructure.database.stock_unit_of_work import StockUnitOfWork

@@ -30,6 +30,7 @@ class UserResponse(BaseModel):
     username: str
     email: str
     full_name: str
+    extra_spaces_allowance: int
     is_active: bool
     is_superuser: bool
     created_at: datetime

@@ -54,7 +54,7 @@ El mismo endpoint admite datos Business:
 }
 ```
 
-Creación devuelve `201` con la entidad completa y los campos sin completar a `null`. El listado existente devuelve el mismo DTO ampliado.
+Creación devuelve `201` con la entidad completa y los campos sin completar a `null`. El listado existente devuelve el mismo DTO ampliado. Se validan las cuotas agregadas del espacio: FREE Collector hasta 50 botellas, FREE Business hasta 25 registros/SKUs; PRO sin cuota de inventario. Altas, PUT/PATCH e importaciones no pueden eludirlas y devuelven `403`/`ITEM_LIMIT_REACHED` si aumentan el consumo por encima del máximo. Detalles y metadatos frontend: [resource-quotas.md](resource-quotas.md).
 
 Actualizaciones:
 

@@ -14,6 +14,7 @@ class SpaceResponse(BaseModel):
     space_type: SpaceType
     subscription_plan: SubscriptionPlan
     subscription_status: SubscriptionStatus
+    extra_cellars_allowance: int
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -27,6 +28,7 @@ class SpaceResponse(BaseModel):
             space_type=space.space_type,
             subscription_plan=space.subscription_plan,
             subscription_status=space.subscription_status,
+            extra_cellars_allowance=space.extra_cellars_allowance,
             created_at=space.created_at,
             updated_at=space.updated_at,
         )

@@ -136,9 +136,9 @@ La organización nueva (si aplica), el espacio, la membresía OWNER y su cava se
 
 La respuesta `201` conserva los campos del espacio y agrega `default_wine_cellar`, con los campos habituales de `WineCellarResponse`: `id`, `space_id`, `name`, `description`, `device_id`, `created_at` y `updated_at`. El frontend puede usar directamente `response.id` y `response.default_wine_cellar.id` para autoseleccionar ambos y actualizar el selector, sin recargar la página ni crear otra cava manualmente. `GET /api/v1/user/context` también refleja la cava después del commit; su contrato no cambia.
 
-El contexto es de solo lectura e incluye espacios/cavas donde el usuario es miembro, aunque no sea el creador. Devuelve listas vacías para cuentas sin membresías. Se conserva el límite legacy de cinco espacios por organización; no es un plan global del usuario. El plan/estado pertenece a cada espacio; todavía no se integra cobro ni se añaden cuotas comerciales por cantidad de cavas.
+El contexto es de solo lectura e incluye espacios/cavas donde el usuario es miembro, aunque no sea el creador. La cuenta tiene dos espacios de cortesía (uno de cada tipo) más `extra_spaces_allowance`. Las cavas permitidas son 1 en FREE o 3 en PRO más `extra_cellars_allowance`. FREE limita Collector a 50 botellas y Business a 25 registros/SKUs en todo el espacio; PRO no tiene cuotas de inventario. Se reemplaza el límite anterior de cinco espacios por organización.
 
-El contexto usa una validación de identidad y dos consultas de directorio, sin N+1 por espacio:
+El contexto usa consultas agrupadas de directorio y cuotas, sin N+1 por espacio. Conserva las listas anteriores y agrega `account_quota` y `spaces[].quotas`; contrato completo: [docs/resource-quotas.md](docs/resource-quotas.md). Ejemplo abreviado del directorio:
 
 ```json
 {

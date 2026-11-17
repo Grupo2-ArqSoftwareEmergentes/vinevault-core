@@ -4,7 +4,8 @@
 
 - `users` contiene identidad/credenciales y metadatos de autenticación, sin propósito comercial ni plan global. Se añade `full_name`. `password_hash` es un alias ORM de la columna existente `hashed_password`: no se rehashean ni se exponen contraseñas.
 - Se conservan `username`, `is_active`, timestamps y el flag administrativo IAM `is_superuser` por compatibilidad con login y `/iam/me`. Ese flag **no da acceso a espacios** y no sustituye membresías.
-- `spaces` añade `space_type` (`COLLECTOR`, `BUSINESS`), `subscription_plan` (`FREE`, `PRO`, `BUSINESS`) y `subscription_status` (`ACTIVE`, `EXPIRED`). El plan pertenece al espacio, nunca a la identidad. No se integra un proveedor de cobros en este cambio.
+- `spaces` añade `space_type` (`COLLECTOR`, `BUSINESS`), `subscription_plan` (`FREE`, `PRO`) y `subscription_status` (`ACTIVE`, `EXPIRED`). El plan pertenece al espacio, nunca a la identidad. El valor legacy de plan BUSINESS se migra a PRO; no cambia el propósito BUSINESS.
+- La cuenta incorpora un control de cupos `extra_spaces_allowance` y el espacio `extra_cellars_allowance`, ambos cero por defecto. No son un tipo de cuenta ni un plan global. Fórmulas y límites: [resource-quotas.md](resource-quotas.md).
 - `space_members` relaciona usuarios y espacios mediante PK compuesta `(space_id, user_id)`, FKs reales e índice por usuario. El rol es `OWNER`, `SOMMELIER`, `WAITER` o `INVENTORY_CLERK` y se consulta en base de datos, no en el JWT. Borrar un espacio elimina sus membresías.
 - `organization_id` y `owner_user_id` siguen en los DTOs/esquema para no romper clientes ni contratos Edge. La organización es transparente para navegación personal y `owner_user_id` queda como dato legacy: **no autoriza acceso**.
 
@@ -62,7 +63,7 @@ Si cualquier inserción falla, se revierte todo. El cliente no puede elegir un p
 }
 ```
 
-El frontend debe tomar tipo/plan/rol del espacio seleccionado, no de `/iam/me` ni del JWT. Ocultar acciones según rol mejora UX, pero el backend vuelve a autorizar cada petición. La consulta hace una validación de identidad activa y dos consultas de directorio, sin N+1 por espacio.
+El frontend debe tomar tipo/plan/rol del espacio seleccionado, no de `/iam/me` ni del JWT. Ocultar acciones según rol mejora UX, pero el backend vuelve a autorizar cada petición. El contexto incluye consumos/límites agrupados, sin N+1 por espacio; ver [resource-quotas.md](resource-quotas.md) para `account_quota` y `spaces[].quotas`.
 
 ## Política inicial de roles
 
@@ -80,7 +81,7 @@ El guard se aplica a todos los routers de usuario de espacios, cavas, dispositiv
 
 La ingesta autenticada del Edge no cambia: usa su API key y sus rutas separadas. El pairing físico sin tenant mantiene su comportamiento previo; reclamar el dispositivo sí exige permisos del espacio de destino. Un dispositivo ya asignado no se mueve implícitamente a otro espacio.
 
-El estado EXPIRED se informa, pero no se inventa una política de suspensión o cuotas por plan sin reglas comerciales definidas. Se conserva el límite legacy de cinco espacios por organización; no representa una suscripción global del usuario. No cambian los límites de cavas ni se añaden límites comerciales nuevos.
+El estado EXPIRED se informa sin un downgrade automático adicional. Las cuotas se calculan con el plan guardado y ahora sustituyen el antiguo límite de cinco espacios por organización: [resource-quotas.md](resource-quotas.md).
 
 ## Migración y despliegue
 

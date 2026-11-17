@@ -28,5 +28,9 @@ class UpdateWineCellarRequest(CreateWineCellarRequest):
     pass
 
 
+class CreateWineCellarInSpaceRequest(CreateWineCellarRequest):
+    space_id: UUID
+
+
 class LinkWineCellarDeviceRequest(BaseModel):
     device_id: UUID

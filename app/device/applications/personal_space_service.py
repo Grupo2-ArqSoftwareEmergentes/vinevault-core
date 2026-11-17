@@ -7,10 +7,6 @@ from app.device.domain.models.value_objects.space_access import SpaceType
 from app.wine_cellar.domain.models import WineCellar
 
 
-class SpaceLimitReachedError(ValueError):
-    pass
-
-
 class OrganizationNotFoundError(ValueError):
     pass
 
@@ -37,6 +33,7 @@ class PersonalSpaceService:
     ) -> CreatedSpace:
         async with self.unit_of_work as work:
             await work.organizations.lock_space_creation(user_id)
+            await work.quotas.require_space_slot(user_id, space_type.value)
             if organization_id is None:
                 organization = await work.organizations.resolve_personal_organization(user_id)
             else:
@@ -46,9 +43,6 @@ class PersonalSpaceService:
                 if organization.owner_user_id.user_id != user_id:
                     raise OrganizationAccessDeniedError("Organization does not belong to user")
 
-            spaces = await work.spaces.find_all_by_organization_id(organization.id)
-            if len(spaces) >= organization.get_max_spaces():
-                raise SpaceLimitReachedError("Organization reached max spaces")
             space = await work.spaces.save(Space(
                 name=name,
                 organization_id=organization.id,

@@ -36,7 +36,9 @@ async def authorize_space_request(
     raw_space = parameters.get("space_id") or request.query_params.get("space_id") or request.query_params.get("spaceId")
     cellar_id = parameters.get("wine_cellar_id")
     device_id = parameters.get("device_id")
-    if request.method == "POST" and (request.url.path.startswith("/api/v1/ai/") or request.url.path == "/api/v1/devices/claim"):
+    if request.method == "POST" and (request.url.path.startswith("/api/v1/ai/") or request.url.path in {
+        "/api/v1/devices/claim", "/api/v1/wine-cellars", "/api/v1/wine-items",
+    }):
         try:
             body = await request.json()
         except ValueError:
@@ -68,7 +70,7 @@ async def authorize_space_request(
         path = request.url.path
         if path.startswith("/api/v1/ai/"):
             permission = SpacePermission.ANALYZE
-        elif "/inventory" in path:
+        elif "/inventory" in path or path == "/api/v1/wine-items":
             permission = SpacePermission.INVENTORY
         elif "/wine-cellars" in path or "/devices" in path:
             permission = SpacePermission.CONFIGURE
