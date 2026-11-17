@@ -28,6 +28,8 @@
 - `authorize_space_request` guards user routers (spaces, cellars, devices, alerts, AI), including indirect IDs; do not add unguarded tenant routes. Membership is authoritative: legacy owner fields and IAM superuser status do not bypass roles. Edge routes retain separate API-key auth. Purpose, plan and role are per-space; see `docs/space-tenancy.md` for the matrix.
 - Space deletion uses `SpaceDeletionService`/`SpaceDeletionUnitOfWork`: lock and authorize the space, reject assigned devices, then delete inventories, cellars and space in one transaction. Bulk cellar deletion is explicit to support existing FKs without cascade; never replace it with per-cellar repository calls that commit early.
 - AI stock analysis keeps JSON by default; SSE is opt-in via Accept header or `stream=true`. Empty inventory always returns JSON before initializing Google. Keep the SQL snapshot bounded and never retry after text was emitted; see `docs/inventory-ai.md` for the wire contract and limits.
+- Inventory uses physical `wine_inventory_items.name`; ORM/API retain `wine_name` as a legacy alias, not a second column. Advanced details, wine type and legacy age are nullable. Updates preserve omitted fields; explicit null clears optional values. Decimal JSON values are strings. See `docs/wine-inventory.md` before changing schemas/imports.
+- Audited stock exits use `InventoryStockService`/`StockUnitOfWork`: lock the scoped item, subtract quantity and flush history before one commit. Never use a read/modify/write without locking or call an auto-committing repository inside that UoW. Movement history cascades on item deletion; absolute PUT/import counts do not create exit records.
 
 ## Edge integration
 

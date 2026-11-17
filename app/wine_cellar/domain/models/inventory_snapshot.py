@@ -3,13 +3,14 @@ from pydantic import BaseModel, Field
 
 class InventoryItemSummary(BaseModel):
     wine_name: str
-    wine_type: str
-    age_years: int
+    wine_type: str | None = None
+    age_years: int | None = None
+    vintage: str | None = None
     quantity: int
 
 
 class InventoryCategorySummary(BaseModel):
-    wine_type: str
+    wine_type: str | None = None
     items: int
     quantity: int
 

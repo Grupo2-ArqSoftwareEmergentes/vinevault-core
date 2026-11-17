@@ -1,26 +1,20 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, model_validator
+
+from app.wine_cellar.domain.models.wine_item_details import WineItemDetails
 
 
-class CreateWineInventoryItemRequest(BaseModel):
-    wine_name: str = Field(..., min_length=1)
-    wine_type: str = Field(..., min_length=1)
-    age_years: int = Field(..., ge=0)
-    quantity: int = Field(..., ge=0)
-
-    @field_validator("wine_name")
-    @classmethod
-    def normalize_wine_name(cls, value: str) -> str:
-        if not value or not value.strip():
-            raise ValueError("Wine name must not be null or blank")
-        return value.strip()
-
-    @field_validator("wine_type")
-    @classmethod
-    def normalize_wine_type(cls, value: str) -> str:
-        if not value or not value.strip():
-            raise ValueError("Wine type must not be null or blank")
-        return value.strip()
+class CreateWineInventoryItemRequest(WineItemDetails):
+    name: str = Field(min_length=1, max_length=255)
+    quantity: int = Field(default=0, ge=0, le=2147483647)
 
 
-class UpdateWineInventoryItemRequest(CreateWineInventoryItemRequest):
-    pass
+class UpdateWineInventoryItemRequest(WineItemDetails):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    quantity: int | None = Field(default=None, ge=0, le=2147483647)
+
+    @model_validator(mode="after")
+    def core_fields_cannot_be_cleared(self):
+        for field in ("name", "quantity"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self

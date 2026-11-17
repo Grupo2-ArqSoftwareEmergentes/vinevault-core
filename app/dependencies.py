@@ -113,6 +113,17 @@ def get_wine_inventory_repository(db: AsyncSession = Depends(get_db)) -> WineInv
     return WineInventoryRepository(db)
 
 
+def get_inventory_stock_service(db: AsyncSession = Depends(get_db)):
+    from .wine_cellar.applications.inventory_stock_service import InventoryStockService
+    from .wine_cellar.infrastructure.database.stock_unit_of_work import StockUnitOfWork
+    return InventoryStockService(StockUnitOfWork(db))
+
+
+def get_stock_movement_repository(db: AsyncSession = Depends(get_db)):
+    from .wine_cellar.infrastructure.database.repositories.stock_movement_repository import StockMovementRepository
+    return StockMovementRepository(db)
+
+
 def get_telemetry_repository(db: AsyncSession = Depends(get_db)) -> TelemetryRepository:
     return TelemetryRepository(db)
 

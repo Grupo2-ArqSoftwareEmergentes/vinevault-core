@@ -56,6 +56,11 @@ async def init_db():
                 columns = {c["name"] for c in inspector.get_columns("spaces")}
                 if "space_members" not in tables or not {"space_type", "subscription_plan", "subscription_status"}.issubset(columns):
                     raise RuntimeError("Database migration required: python -m alembic upgrade head")
+            if "wine_inventory_items" in tables:
+                from app.wine_cellar.domain.models.wine_item_details import WineItemDetails
+                columns = {c["name"] for c in inspector.get_columns("wine_inventory_items")}
+                if "wine_stock_movements" not in tables or not {"name", *WineItemDetails.model_fields}.issubset(columns):
+                    raise RuntimeError("Database migration required: python -m alembic upgrade head")
         await conn.run_sync(validate_existing_schema)
         await conn.run_sync(Base.metadata.create_all)
 

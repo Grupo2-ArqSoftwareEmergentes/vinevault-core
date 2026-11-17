@@ -170,6 +170,12 @@ Las pruebas crean y eliminan un esquema temporal único por caso; no usan las ta
 
 `POST /api/v1/ai/analyze-stock` conserva la respuesta JSON existente y omite Google cuando la cava no tiene registros de inventario. Para resultados incrementales, solicitar `Accept: text/event-stream` o `?stream=true`; el frontend debe procesar eventos SSE. Configuración, errores y contrato de integración: [docs/inventory-ai.md](docs/inventory-ai.md).
 
+## Inventario unificado y salidas
+
+Collector y Business comparten el mismo DTO: `name` (alias compatible `wine_name`), stock y ficha opcional de vino, costos, proveedor y cata. `PATCH`/`PUT` conservan campos omitidos y permiten limpiar opcionales con `null`. La migración conserva datos y renombra la columna física `wine_name` a `name`.
+
+`POST /api/v1/wine-cellars/{cellar_id}/inventory/{item_id}/movements` registra una salida con `quantity`, `reason` (`sale`, `tasting`, `breakage`, `uncorking`) y notas opcionales. Descuento e historial son atómicos y no permiten stock negativo. Contrato, escalas, compatibilidad y migración: [docs/wine-inventory.md](docs/wine-inventory.md).
+
 ## Detener los servicios
 
 Detén la API con `Ctrl+C`. Para detener la infraestructura sin eliminar sus contenedores ni volúmenes:

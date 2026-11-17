@@ -17,15 +17,15 @@ class PromptBuilder:
             "age_years_range": [cellar_data.min_age_years, cellar_data.max_age_years],
         }
         if cellar_data.inventory:
-            data["columns"] = ["name", "type", "age_years", "quantity"]
+            data["columns"] = ["name", "type", "vintage", "age_years", "quantity"]
             data["wines"] = [
-                [item.wine_name[:100], item.wine_type[:60], item.age_years, item.quantity]
+                [item.wine_name[:100], (item.wine_type or "Sin especificar")[:60], item.vintage, item.age_years, item.quantity]
                 for item in cellar_data.inventory[:40]
             ]
         else:
             data["category_columns"] = ["type", "items", "bottles"]
             data["categories"] = [
-                [category.wine_type[:60], category.items, category.quantity]
+                [(category.wine_type or "Sin especificar")[:60], category.items, category.quantity]
                 for category in cellar_data.categories[:12]
             ]
             data["other"] = [cellar_data.other_items, cellar_data.other_quantity]

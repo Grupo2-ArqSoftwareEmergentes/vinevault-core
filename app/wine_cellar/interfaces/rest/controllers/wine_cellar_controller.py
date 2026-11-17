@@ -11,7 +11,11 @@ from app.dependencies import (
     get_space_repository,
     get_wine_cellar_repository,
     get_wine_inventory_repository,
+    get_inventory_stock_service,
+    get_stock_movement_repository,
 )
+from app.wine_cellar.applications.inventory_stock_service import InventoryItemNotFoundError, InsufficientStockError
+from ..resources.stock_movement_resource import StockExitRequest, StockMovementResponse
 from app.core.database import AsyncSessionLocal
 from app.wine_cellar.applications import InventoryExcelError, WineInventoryExcelService
 from app.wine_cellar.applications.inventory_excel_service import XLSX_MIME_TYPE
@@ -47,9 +51,9 @@ async def _get_wine_cellar_for_user(wine_cellar_id: UUID, user_id: int, wine_cel
     return wine_cellar
 
 
-async def _get_wine_inventory_item_for_user(wine_cellar_id: UUID, inventory_item_id: UUID, user_id: int, wine_cellar_repo, space_repo, inventory_repo):
+async def _get_wine_inventory_item_for_user(wine_cellar_id: UUID, inventory_item_id: UUID, user_id: int, wine_cellar_repo, space_repo, inventory_repo, *, for_update: bool = False):
     wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
-    inventory_item = await inventory_repo.find_by_id(inventory_item_id)
+    inventory_item = await inventory_repo.find_by_id(inventory_item_id, for_update=for_update, wine_cellar_id=wine_cellar_id)
     if not inventory_item or inventory_item.wine_cellar_id != wine_cellar.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wine inventory item not found")
     return wine_cellar, inventory_item
@@ -283,16 +287,14 @@ async def create_wine_inventory_item(
 
     inventory_item = WineInventoryItem(
         wine_cellar_id=wine_cellar.id,
-        wine_name=request.wine_name,
-        wine_type=request.wine_type,
-        age_years=request.age_years,
-        quantity=request.quantity,
+        **request.model_dump(),
     )
     saved = await inventory_repo.save(inventory_item)
     return WineInventoryItemResponse.from_domain(saved)
 
 
 @router.put("/wine-cellars/{wine_cellar_id}/inventory/{inventory_item_id}")
+@router.patch("/wine-cellars/{wine_cellar_id}/inventory/{inventory_item_id}")
 async def update_wine_inventory_item(
     wine_cellar_id: UUID,
     inventory_item_id: UUID,
@@ -303,14 +305,9 @@ async def update_wine_inventory_item(
     inventory_repo = Depends(get_wine_inventory_repository),
 ) -> WineInventoryItemResponse:
     _, inventory_item = await _get_wine_inventory_item_for_user(
-        wine_cellar_id, inventory_item_id, user_id, wine_cellar_repo, space_repo, inventory_repo
+        wine_cellar_id, inventory_item_id, user_id, wine_cellar_repo, space_repo, inventory_repo, for_update=True,
     )
-    inventory_item.update(
-        wine_name=request.wine_name,
-        wine_type=request.wine_type,
-        age_years=request.age_years,
-        quantity=request.quantity,
-    )
+    inventory_item = inventory_item.with_changes(request.model_dump(exclude_unset=True))
     saved = await inventory_repo.save(inventory_item)
     return WineInventoryItemResponse.from_domain(saved)
 
@@ -328,3 +325,41 @@ async def delete_wine_inventory_item(
         wine_cellar_id, inventory_item_id, user_id, wine_cellar_repo, space_repo, inventory_repo
     )
     await inventory_repo.delete(inventory_item_id)
+
+
+@router.post("/wine-cellars/{wine_cellar_id}/inventory/{inventory_item_id}/movements", status_code=201)
+async def record_stock_exit(
+    wine_cellar_id: UUID,
+    inventory_item_id: UUID,
+    request: StockExitRequest,
+    user_id: int = Depends(get_current_user_id),
+    service = Depends(get_inventory_stock_service),
+) -> StockMovementResponse:
+    try:
+        movement = await service.withdraw(
+            wine_cellar_id, inventory_item_id, user_id, request.quantity, request.reason, request.notes,
+        )
+    except InventoryItemNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InsufficientStockError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return StockMovementResponse.model_validate(movement.model_dump())
+
+
+@router.get("/wine-cellars/{wine_cellar_id}/inventory/{inventory_item_id}/movements")
+async def list_stock_movements(
+    wine_cellar_id: UUID,
+    inventory_item_id: UUID,
+    limit: int = Query(default=100, ge=1, le=500),
+    user_id: int = Depends(get_current_user_id),
+    wine_cellar_repo = Depends(get_wine_cellar_repository),
+    space_repo = Depends(get_space_repository),
+    inventory_repo = Depends(get_wine_inventory_repository),
+    movement_repo = Depends(get_stock_movement_repository),
+) -> list[StockMovementResponse]:
+    await _get_wine_inventory_item_for_user(
+        wine_cellar_id, inventory_item_id, user_id, wine_cellar_repo, space_repo, inventory_repo,
+    )
+    return [StockMovementResponse.model_validate(movement.model_dump()) for movement in await movement_repo.list_for_item(
+        wine_cellar_id, inventory_item_id, limit,
+    )]

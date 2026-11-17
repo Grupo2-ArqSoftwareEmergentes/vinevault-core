@@ -12,8 +12,9 @@ from ..models.wine_inventory_item_orm import WineInventoryItemORM
 
 
 class WineInventoryRepository:
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, *, auto_commit: bool = True):
         self._session = session
+        self._auto_commit = auto_commit
 
     async def get_analysis_snapshot(self, wine_cellar_id: UUID) -> InventorySnapshot:
         """Bounded projection: never load a large cellar into an LLM prompt or ORM list."""
@@ -31,7 +32,7 @@ class WineInventoryRepository:
             return snapshot
         if count <= 40:
             result = await self._session.execute(select(
-                item.wine_name, item.wine_type, item.age_years, item.quantity,
+                item.wine_name.label("wine_name"), item.wine_type, item.age_years, item.quantity, item.vintage,
             ).where(scope).order_by(item.id).limit(40))
             snapshot.inventory = [InventoryItemSummary(**dict(row._mapping)) for row in result]
         else:
@@ -46,8 +47,14 @@ class WineInventoryRepository:
             snapshot.other_quantity = quantity - sum(category.quantity for category in snapshot.categories)
         return snapshot
 
-    async def find_by_id(self, wine_inventory_item_id: UUID) -> Optional[WineInventoryItem]:
+    async def find_by_id(
+        self, wine_inventory_item_id: UUID, *, for_update: bool = False, wine_cellar_id: UUID | None = None,
+    ) -> Optional[WineInventoryItem]:
         stmt = select(WineInventoryItemORM).where(WineInventoryItemORM.id == wine_inventory_item_id)
+        if wine_cellar_id is not None:
+            stmt = stmt.where(WineInventoryItemORM.wine_cellar_id == wine_cellar_id)
+        if for_update:
+            stmt = stmt.with_for_update()
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
         return orm.to_domain() if orm else None
@@ -65,7 +72,8 @@ class WineInventoryRepository:
     async def save(self, wine_item: WineInventoryItem) -> WineInventoryItem:
         orm = await self._session.merge(WineInventoryItemORM.from_domain(wine_item))
         await self._session.flush()
-        await self._session.commit()
+        if self._auto_commit:
+            await self._session.commit()
         result = await self._session.execute(select(WineInventoryItemORM).where(WineInventoryItemORM.id == orm.id))
         persisted = result.scalar_one()
         return persisted.to_domain()

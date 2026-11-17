@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, BadZipFile
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,8 +31,8 @@ class _ParsedInventoryRow:
     row_number: int
     item_id: UUID | None
     wine_name: str
-    wine_type: str
-    age_years: int
+    wine_type: str | None
+    age_years: int | None
     quantity: int
 
 
@@ -80,8 +80,10 @@ class WineInventoryExcelService:
         wine_cellar_id: UUID,
         file_bytes: bytes,
     ) -> InventoryImportResult:
-        workbook = self._read_workbook(file_bytes)
-        sheet_name, rows = self._extract_sheet_rows(workbook)
+        try:
+            sheet_name, rows = self._extract_sheet_rows(BytesIO(file_bytes))
+        except (BadZipFile, ET.ParseError) as exc:
+            raise InventoryExcelError("Invalid .xlsx workbook") from exc
         parsed_rows = self._parse_inventory_rows(rows)
 
         created = 0
@@ -102,7 +104,7 @@ class WineInventoryExcelService:
                     continue
 
                 existing = await session.scalar(
-                    select(WineInventoryItemORM).where(WineInventoryItemORM.id == parsed_row.item_id)
+                    select(WineInventoryItemORM).where(WineInventoryItemORM.id == parsed_row.item_id).with_for_update()
                 )
                 if existing is None:
                     raise InventoryExcelError(
@@ -151,8 +153,10 @@ class WineInventoryExcelService:
                     seen_ids.add(item_id)
 
                 wine_name = self._parse_required_text(row.get(self._column_key_for_header(header_map, "wine_name")), "wine_name", row_number)
-                wine_type = self._parse_required_text(row.get(self._column_key_for_header(header_map, "wine_type")), "wine_type", row_number)
-                age_years = self._parse_non_negative_int(row.get(self._column_key_for_header(header_map, "age_years")), "age_years", row_number)
+                raw_type = row.get(self._column_key_for_header(header_map, "wine_type"))
+                wine_type = str(raw_type).strip() or None if raw_type is not None else None
+                raw_age = row.get(self._column_key_for_header(header_map, "age_years"))
+                age_years = self._parse_non_negative_int(raw_age, "age_years", row_number) if raw_age not in (None, "") else None
                 quantity = self._parse_non_negative_int(row.get(self._column_key_for_header(header_map, "quantity")), "quantity", row_number)
             except InventoryExcelError:
                 raise

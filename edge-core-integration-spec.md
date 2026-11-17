@@ -18,6 +18,8 @@ La base original venia de otro proyecto similar, pero aqui se ajusta a lo que re
 
 ### Contexto personal y navegación directa
 
+Inventario unificado: los ítems de las mismas rutas `/wine-cellars/{id}/inventory` admiten nombre canónico `name` (alias `wine_name`) y ficha opcional compartida Collector/Business. `POST /wine-cellars/{id}/inventory/{item_id}/movements` registra salidas con motivo y stock atómico; no cambia rutas ni payloads Edge/Kafka. Contrato y migración: [docs/wine-inventory.md](docs/wine-inventory.md).
+
 Actualización multi-tenant: el acceso de usuarios a espacios, cavas, dispositivos y análisis se valida por `space_members`, no por los campos legacy de propietario. `POST /api/v1/user/onboarding` recibe `name` y `space_type` (`COLLECTOR`/`BUSINESS`) y crea espacio FREE/ACTIVE, membresía OWNER y Cava Principal en una transacción. `GET /api/v1/user/context` incluye espacios compartidos y añade `space_type`, `subscription_plan`, `subscription_status` y `role` a cada espacio. Los contratos de ingesta Edge y los payloads Kafka no cambian. Detalles y migración obligatoria para bases existentes: [docs/space-tenancy.md](docs/space-tenancy.md). Las referencias anteriores a "usuario dueño" en rutas de lectura deben interpretarse ahora como "miembro autorizado del espacio"; las escrituras aplican la política de roles documentada.
 
 - `POST /api/v1/spaces` con `{"name":"Casa"}` permite crear espacios sin seleccionar organización. Reutiliza la organización más antigua del usuario (desempate por ID) o crea `Organización Personal` si no existe, en la misma transacción que el espacio. Conserva el límite de cinco espacios por organización y las rutas anidadas existentes.
