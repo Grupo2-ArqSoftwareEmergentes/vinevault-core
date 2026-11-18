@@ -38,11 +38,13 @@ class WineItemDetails(BaseModel):
     origin_type: OriginType | None = None
     purchase_date: date | None = None
     batch_invoice_number: str | None = Field(default=None, max_length=100)
+    # Legacy technical metrics: never required by the simplified tasting form.
     rating: Decimal | None = Field(default=None, ge=1, le=100, max_digits=5, decimal_places=2)
     body_slider: Decimal | None = Field(default=None, ge=0, le=5, max_digits=3, decimal_places=2)
     acidity_slider: Decimal | None = Field(default=None, ge=0, le=5, max_digits=3, decimal_places=2)
     tannins_slider: Decimal | None = Field(default=None, ge=0, le=5, max_digits=3, decimal_places=2)
     aroma_tags: list[Tag] | None = Field(default=None, max_length=50)
+    tasting_notes: str | None = Field(default=None, max_length=4000)
     occasion_notes: str | None = Field(default=None, max_length=4000)
     company_notes: str | None = Field(default=None, max_length=4000)
     would_buy_again: bool | None = None
@@ -90,7 +92,7 @@ class WineItemDetails(BaseModel):
     @field_validator(
         "winery", "physical_location", "country", "region", "appellation", "wine_type",
         "bottle_format", "aging", "consumption_window", "supplier_name", "batch_invoice_number",
-        "occasion_notes", "company_notes", mode="before",
+        "tasting_notes", "occasion_notes", "company_notes", mode="before",
     )
     @classmethod
     def blank_optional_text_is_null(cls, value):

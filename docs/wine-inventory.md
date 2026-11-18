@@ -17,7 +17,8 @@ Al crear, **solo `name` es obligatorio**; `quantity` vale `0` si se omite. Los d
 | Núcleo | `id` UUID y `wine_cellar_id` UUID generados/asignados por backend; `name` texto no vacío hasta 255; `winery` hasta 255; `vintage` año de cuatro dígitos o `NV`; `quantity` entero >= 0; `physical_location` hasta 255 |
 | Ficha | `country` hasta 100; `region`, `appellation`, `wine_type`, `aging`, `consumption_window` hasta 255; `bottle_format` hasta 50; `alcohol_percentage` decimal 0–100 |
 | Costos/control | `purchase_price`, `sale_price`: decimal no negativo, hasta dos decimales; `min_stock_alert`: entero >= 0; `supplier_name` hasta 255; `origin_type`; `purchase_date` fecha ISO `YYYY-MM-DD`; `batch_invoice_number` hasta 100 |
-| Experiencia | `rating`: **escala de 1–100 puntos**; `body_slider`, `acidity_slider`, `tannins_slider`: **0–5**; `aroma_tags`: array de hasta 50 textos de 1–64 caracteres; `occasion_notes`, `company_notes`: hasta 4000 caracteres; `would_buy_again`: boolean |
+| Cata simplificada | `tasting_notes`, `company_notes` (notas internas): hasta 4000 caracteres; `would_buy_again`: boolean; todos opcionales y nullable |
+| Experiencia legacy | `rating`: **escala de 1–100 puntos**; `body_slider`, `acidity_slider`, `tannins_slider`: **0–5**; `aroma_tags`: array de hasta 50 textos de 1–64 caracteres; `occasion_notes`: hasta 4000 caracteres; todos opcionales y nullable |
 | Compatibilidad | `wine_name`: alias de `name`; `age_years`: entero >= 0 opcional, sin convertirlo automáticamente a añada |
 
 - `vintage` admite números como `2020` en entrada y devuelve la cadena `"2020"`; `nv` se normaliza a `"NV"`. No se calcula la añada a partir de la edad ni viceversa.
@@ -26,6 +27,7 @@ Al crear, **solo `name` es obligatorio**; `quantity` vale `0` si se omite. Los d
 - La escala de rating es única: un valor `5` significa 5/100, no cinco estrellas. Si la UI usa estrellas, debe convertirlas explícitamente antes de enviar.
 - `null`, `false`, `0` y `[]` son distintos. Por ejemplo, `would_buy_again: null` significa sin valoración y `false` significa que no volvería a comprarlo. `aroma_tags: null` se guarda como SQL NULL; `[]` representa una lista explícitamente vacía.
 - No se generan alertas nuevas con `min_stock_alert` en este cambio: queda persistido para su posterior evaluación.
+- La cata simplificada no requiere métricas técnicas: pueden omitirse o enviarse como `null`. Los valores legacy se conservan si se omiten al actualizar. `tasting_notes` es independiente de `occasion_notes` y `company_notes`; los textos vacíos se convierten a `null` y `would_buy_again: false` se conserva.
 
 ## Crear y actualizar
 
@@ -125,6 +127,8 @@ El Excel existente conserva su formato básico (`wine_name`, `wine_type`, `age_y
 La proyección de IA acepta tipo/edad desconocidos y añade añada si existe. Sigue enviando únicamente campos mínimos y resúmenes acotados; no envía costos, notas personales, compañía ni aromas a Gemini por incorporar estas columnas al modelo maestro.
 
 ## Migración y pruebas
+
+La revisión `20261118_simplified_tasting`, posterior a `20261117_resource_quotas`, agrega `tasting_notes` nullable y asegura que las métricas técnicas y los campos de cata simplificada admitan SQL `NULL`, sin borrar valores existentes. Aplicarla antes de iniciar la API actualizada.
 
 La revisión `20261116_unified_wine_items` sigue a `20261116_space_memberships`. Conserva IDs, relaciones, nombres y stock existentes; agrega columnas nullable, restricciones e historial de salidas. No se ha ejecutado sobre la base habitual durante el desarrollo.
 

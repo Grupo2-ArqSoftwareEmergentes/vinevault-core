@@ -21,6 +21,38 @@ from pydantic import ValidationError
 
 
 class WineItemValidationTests(unittest.TestCase):
+    def test_simplified_tasting_accepts_omitted_and_null_technical_metrics(self):
+        technical = ("rating", "body_slider", "acidity_slider", "tannins_slider", "aroma_tags")
+        for model in (CreateWineInventoryItemRequest, UpdateWineInventoryItemRequest):
+            for metrics in ({}, dict.fromkeys(technical)):
+                with self.subTest(model=model.__name__, metrics=metrics):
+                    request = model.model_validate({
+                        "name": "Reserva", "tasting_notes": "  Frutal y fresco  ",
+                        "company_notes": "  Servir por copa  ", "would_buy_again": False,
+                        **metrics,
+                    })
+                    self.assertEqual(request.tasting_notes, "Frutal y fresco")
+                    self.assertEqual(request.company_notes, "Servir por copa")
+                    self.assertIs(request.would_buy_again, False)
+                    for field in technical:
+                        self.assertIsNone(getattr(request, field))
+                    required = model.model_json_schema().get("required", [])
+                    self.assertTrue(set(technical).isdisjoint(required))
+
+    def test_tasting_text_is_optional_bounded_and_blank_normalizes_to_null(self):
+        for model in (CreateWineInventoryItemRequest, UpdateWineInventoryItemRequest):
+            for field in ("tasting_notes", "company_notes"):
+                for value in (None, "", "   "):
+                    request = model.model_validate({"name": "Reserva", field: value})
+                    self.assertIsNone(getattr(request, field))
+                with self.assertRaises(ValidationError):
+                    model.model_validate({"name": "Reserva", field: "x" * 4001})
+        self.assertNotIn("tasting_notes", UpdateWineInventoryItemRequest().model_dump(exclude_unset=True))
+        self.assertEqual(
+            UpdateWineInventoryItemRequest(tasting_notes=None).model_dump(exclude_unset=True),
+            {"tasting_notes": None},
+        )
+
     def test_minimal_and_legacy_requests_share_one_name(self):
         modern = CreateWineInventoryItemRequest(name="  Reserva  ", vintage=2020)
         self.assertEqual(modern.name, "Reserva")
@@ -49,6 +81,35 @@ class WineItemValidationTests(unittest.TestCase):
 
 
 class UnifiedWineItemTests(PostgresAPITestCase):
+    async def test_simplified_tasting_round_trip_preserves_and_clears_optional_fields(self):
+        cellar = (await self.create_space())["default_wine_cellar"]
+        technical = {"rating": "94.00", "body_slider": "4.00", "acidity_slider": "3.00", "tannins_slider": "2.00", "aroma_tags": ["Fruta"]}
+        item = await self.create_item(cellar, {
+            "name": "Reserva", "tasting_notes": "  Frutal  ", "company_notes": "  Por copa  ",
+            "would_buy_again": False, "occasion_notes": "Cena", **technical,
+        })
+        self.assertEqual(item["tasting_notes"], "Frutal")
+        self.assertEqual(item["company_notes"], "Por copa")
+        self.assertIs(item["would_buy_again"], False)
+        path = f"/api/v1/wine-cellars/{cellar['id']}/inventory/{item['id']}"
+        response = await self.client.patch(path, json={"tasting_notes": "  Equilibrado  "}, headers=self.headers())
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["tasting_notes"], "Equilibrado")
+        self.assertEqual(response.json()["occasion_notes"], "Cena")
+        self.assertIs(response.json()["would_buy_again"], False)
+        for field, value in technical.items():
+            self.assertEqual(response.json()[field], value)
+        cleared = dict.fromkeys((*technical, "tasting_notes", "company_notes", "would_buy_again"))
+        response = await self.client.put(path, json=cleared, headers=self.headers())
+        self.assertEqual(response.status_code, 200, response.text)
+        for field in cleared:
+            self.assertIsNone(response.json()[field])
+        async with self.sessions() as session:
+            row = await session.get(WineInventoryItemORM, UUID(item["id"]))
+            for field in cleared:
+                self.assertIsNone(getattr(row, field))
+            self.assertTrue(await session.scalar(select(WineInventoryItemORM.aroma_tags.is_(None))))
+
     async def create_item(self, cellar, body, user_id=1):
         response = await self.client.post(
             f"/api/v1/wine-cellars/{cellar['id']}/inventory", json=body, headers=self.headers(user_id),
@@ -243,6 +304,40 @@ class UnifiedWineItemTests(PostgresAPITestCase):
 
 
 class WineItemMigrationTests(PostgresAPITestCase):
+    async def test_simplified_tasting_migration_preserves_legacy_metrics_and_allows_nulls(self):
+        cellar = (await self.create_space())["default_wine_cellar"]
+        response = await self.client.post(
+            f"/api/v1/wine-cellars/{cellar['id']}/inventory",
+            json={"name": "Legacy", "rating": "90", "body_slider": "4", "acidity_slider": "3",
+                  "tannins_slider": "2", "aroma_tags": ["Fruta"], "company_notes": "Internas", "would_buy_again": False},
+            headers=self.headers(),
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        nullable_fields = ("rating", "body_slider", "acidity_slider", "tannins_slider", "aroma_tags", "company_notes", "would_buy_again")
+        async with self.engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE wine_inventory_items DROP COLUMN tasting_notes"))
+            for field in nullable_fields:
+                await connection.execute(text(f"ALTER TABLE wine_inventory_items ALTER COLUMN {field} SET NOT NULL"))
+            await connection.run_sync(upgrade_database)
+            columns = await connection.run_sync(lambda sync: {c["name"]: c for c in inspect(sync).get_columns("wine_inventory_items")})
+            for field in (*nullable_fields, "tasting_notes"):
+                self.assertTrue(columns[field]["nullable"], field)
+        async with self.sessions() as session:
+            row = await session.get(WineInventoryItemORM, UUID(response.json()["id"]))
+            self.assertEqual(row.rating, Decimal("90"))
+            self.assertEqual(row.body_slider, Decimal("4"))
+            self.assertEqual(row.acidity_slider, Decimal("3"))
+            self.assertEqual(row.tannins_slider, Decimal("2"))
+            self.assertEqual(row.aroma_tags, ["Fruta"])
+            self.assertEqual(row.company_notes, "Internas")
+            self.assertIs(row.would_buy_again, False)
+            self.assertIsNone(row.tasting_notes)
+        response = await self.client.patch(
+            f"/api/v1/wine-cellars/{cellar['id']}/inventory/{response.json()['id']}",
+            json=dict.fromkeys(nullable_fields), headers=self.headers(),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
     async def test_upgrade_preserves_legacy_inventory_name_and_stock(self):
         space = await self.create_space()
         item = await self.create_inventory(space["default_wine_cellar"])
