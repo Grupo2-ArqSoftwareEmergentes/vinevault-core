@@ -1,5 +1,75 @@
 # Análisis de inventario con IA
 
+## Autocompletar un vino por nombre (sin cata)
+
+`POST /api/v1/inventory/ai-autocomplete`, con `Authorization: Bearer <access-token>`:
+
+```json
+{"wine_name":"Nombre del vino 2020"}
+```
+
+- `wine_name`: texto recortado, obligatorio, 1–255 caracteres. Admite además `registration_date` opcional (`YYYY-MM-DD`, desde 1900-01-01 hasta hoy UTC); si falta o es `null`, usa la fecha UTC del servidor al consultar. No acepta otros campos.
+- Requiere cuenta activa y membresía en al menos un espacio existente con permiso `ANALYZE` (`OWNER`, `SOMMELIER`, `INVENTORY_CLERK`). Sin usuario válido: `401`; sin esa membresía: `403`; payload inválido: `422`. No se usa el owner legacy ni el estado superuser como autorización. No selecciona ni modifica un espacio.
+- Devuelve `200 application/json` con las once claves de formulario siguientes; los datos desconocidos son `null`. La búsqueda agrega metadatos `sources`, `registration_date`, `estimated_fields`, `estimation_basis` y, solo con Gemini cuando Google lo entrega, `search_suggestions_html`, separados de los campos del vino. Si falta la clave API, falla el proveedor/búsqueda, no hay evidencia web utilizable, se agota su cuota, vence el timeout o devuelve JSON inválido, responde `200 {}`. Un nombre ambiguo debe producir sugerencias nulas, no datos inventados. La identificación es probabilística: el usuario debe confirmar los datos.
+
+```json
+{
+  "winery": null,
+  "vintage": null,
+  "country": null,
+  "region": null,
+  "denomination": null,
+  "grape_type": null,
+  "format": null,
+  "aging": null,
+  "alcohol": null,
+  "drinking_window_start": null,
+  "drinking_window_end": null
+}
+```
+
+- La consulta solicita todos los campos de Identificación/Ficha: bodega, cosecha, país, región, D.O./apelación legal, tipo/cepa, formato, crianza, alcohol y ventana. No intenta completar cantidad, ubicación física, datos comerciales/de compra ni cata. Añada es cosecha real: no se aproxima usando la fecha de compra/registro, ni se copia de otra añada del mismo vino. `NV` solo si las fuentes confirman sin añada; si no hay evidencia, `vintage: null`.
+- Si las fuentes no indican una ventana para el producto/añada identificado, se permite una **estimación orientativa**, basada en el tipo/crianza documentados y la fecha de registro, asumiendo botella recién adquirida, sin abrir y bien conservada. Sin identidad/estilo suficiente no se estima. No garantiza estado ni potencial de guarda; una botella comprada hoy puede ser antigua. Los años estimados aparecen en `estimated_fields`, y `estimation_basis` explica criterio y supuestos. No se autoriza estimar otros campos. Los años explícitos de fuentes no se marcan como estimados.
+
+Ejemplo parcial de metadatos de una ventana estimada (los años son ilustrativos, no una regla universal):
+
+```json
+{
+  "registration_date": "2026-11-18",
+  "drinking_window_start": 2026,
+  "drinking_window_end": 2027,
+  "estimated_fields": ["drinking_window_start", "drinking_window_end"],
+  "estimation_basis": "Orientativa desde registro, asumiendo botella sin abrir y buena conservación; cosecha sin confirmar."
+}
+```
+
+- El frontend debe mostrar «estimada» junto a la ventana cuando corresponda y permitir corregirla; mostrar también el criterio, sin tratarlo como una recomendación verificada. Sin estimación, `estimated_fields: []` y `estimation_basis: null`. Estos metadatos solo acompañan la sugerencia: no se guardan en columnas nuevas ni se envían como campos de inventario. El cuerpo antiguo con solo `wine_name` sigue siendo válido.
+
+- Lista cerrada de salida independiente de la ficha de inventario: cualquier propiedad extra del modelo se descarta. Nunca devuelve puntuaciones, aromas, cuerpo, acidez, taninos, notas de cata/internas, argumentos de venta ni decisión de recompra.
+- **Proveedor de autocompletado:** `WINE_AUTOCOMPLETE_PROVIDER=deepseek` por defecto. Selección explícita `deepseek` o `gemini`; no hay fallback automático de proveedor. El análisis de inventario mantiene Gemini y no cambia por esta selección.
+
+```dotenv
+WINE_AUTOCOMPLETE_PROVIDER=deepseek
+DEEPSEEK_API_KEY=<clave-solo-backend>
+DEEPSEEK_MODEL=deepseek-flash
+DEEPSEEK_REQUEST_TIMEOUT_SECONDS=20
+```
+
+- **DeepSeek:** una llamada `POST https://api.deepseek.com/v1/tools/search` (`count=5`, `need_content=true`), seguida de una llamada `/chat/completions` con JSON Output, thinking desactivado, temperatura `0.1` y máximo 500 tokens de salida. Usa únicamente evidencia de la búsqueda; no descarga las URLs desde Core. Contexto acotado a 5 resultados, 2000 caracteres de contenido por resultado, títulos de 300 y URLs de 2048; respuestas HTTP de hasta 512 KiB. La búsqueda acepta como máximo 128 caracteres: nombres mayores devuelven `{}` sin truncar la identidad ni llamar al proveedor. Búsqueda sin resultados/error no dispara extracción. El timeout total compartido es `DEEPSEEK_REQUEST_TIMEOUT_SECONDS` (20 por defecto, >0 y <=60), sin reintentos. La búsqueda y la generación pueden tener cargos separados según DeepSeek; `402` indica saldo insuficiente y también devuelve `{}`. `sources` contiene las páginas consultadas, no una garantía de verificación por campo. Contrato oficial: https://api-docs.deepseek.com/guides/search .
+- **Gemini (opcional):** con `WINE_AUTOCOMPLETE_PROVIDER=gemini`, `GEMINI_AUTOCOMPLETE_WEB_SEARCH=true` por defecto: primero Gemini con la herramienta `google_search` busca fichas (prioriza bodega oficial y después distribuidores). Solo los segmentos enlazados a citas de `grounding_metadata` pasan a una segunda llamada de extracción JSON. Se separan búsqueda y JSON para no exigir soporte simultáneo de herramientas y salida estructurada al modelo. Una discrepancia o identidad/variante incierta debe producir `null`; no existe fallback automático a memoria. La búsqueda reduce, pero no elimina, las identificaciones erróneas.
+- Máximo dos llamadas asíncronas, sin reintentos: hasta 1000 tokens de salida para búsqueda y 500 para extracción, temperatura `0.1`, thinking desactivado para `gemini-2.5-flash*`. El contexto de extracción está acotado a 20 segmentos, 6000 caracteres de texto y 16000 caracteres serializados de evidencia, con hasta 10 fuentes. No se descargan URLs desde el backend. Google puede ejecutar varias consultas de búsqueda dentro de la primera llamada, con coste adicional al de los tokens.
+- Usa `GEMINI_MODEL` y `GEMINI_API_KEY`; opcionalmente otro modelo con `GEMINI_AUTOCOMPLETE_MODEL` (ausente o vacío hereda `GEMINI_MODEL`). Debe admitir Google Search grounding; si no lo admite, devuelve `{}` en vez de cambiar modelo/proveedor. `GEMINI_REQUEST_TIMEOUT_SECONDS` es el plazo total compartido entre búsqueda y extracción (20 segundos por defecto, configurable entre más de cero y 60); el SDK usa el mismo timeout por petición, limitado por ese plazo global. Un `504` del proveedor puede llegar antes. No envía inventario, historial ni identificadores a Google; solo el nombre. No se persisten sugerencias ni se ejecutan migraciones. Establecer explícitamente `GEMINI_AUTOCOMPLETE_WEB_SEARCH=false` recupera el modo anterior sin búsqueda ni fuentes, menos fiable.
+- `sources` contiene `{ "title": "Ficha bodega", "url": "https://..." }`, tomado de los resultados de DeepSeek o los metadatos de Google, nunca de URLs inventadas por el extractor. El frontend debe mostrar estos enlaces junto a las sugerencias, no enviarlos al guardar inventario. Solo Gemini puede agregar `search_suggestions_html`, el Search Entry Point de Google: mostrarlo según las condiciones de Google Search grounding, en un contenedor aislado/sandbox acorde a la política de seguridad del frontend, nunca mediante bypass global de sanitización. No confundir este HTML con un campo de notas del vino.
+- No hay caché ni límite de peticiones por cuenta en este endpoint. El frontend debe solicitarlo por acción explícita, evitar peticiones duplicadas y no reintentar automáticamente un `{}`. Las cuotas del proveedor no sustituyen un control de gasto por cuenta.
+- El frontend debe mapear `denomination → appellation`, `grape_type → wine_type`, `format → bottle_format`, quitar `%` de `alcohol` antes de guardarlo como `alcohol_percentage`, y convertir los años a `consumption_window`. Los otros nombres coinciden con la API de inventario. No sobrescribir valores introducidos por el usuario con `null`; un `{}` permite continuar la edición manual. No renombrar los campos de persistencia para adaptarlos a este DTO.
+
+Pruebas del autocompletado (Google siempre simulado; los checks de membresía SQL requieren `TEST_DATABASE_URL` y usan esquemas temporales):
+
+```powershell
+.\venv\Scripts\python.exe -B -m unittest discover -s tests -p test_wine_autocomplete.py -v
+.\venv\Scripts\python.exe -B -m unittest discover -s tests -p test_deepseek_autocomplete.py -v
+```
+
 ## Contrato compatible y cortocircuito
 
 `POST /api/v1/ai/analyze-stock`, con JWT de usuario y cuerpo:

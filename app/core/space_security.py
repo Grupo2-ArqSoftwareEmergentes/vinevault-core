@@ -8,11 +8,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.dependencies import get_current_user_id_optional
 from app.iam.models import User
-from app.device.applications.space_authorization_service import SpaceAuthorizationService, SpacePermission
+from app.device.applications.space_authorization_service import ALLOWED_ROLES, SpaceAuthorizationService, SpacePermission
 from app.device.infrastructure.database.repositories.space_member_repository import SpaceMemberRepository
 from app.device.infrastructure.database.models.space_orm import SpaceORM
+from app.device.infrastructure.database.models.space_member_orm import SpaceMemberORM
 from app.device.infrastructure.database.models.device_assignment_orm import DeviceAssignmentORM
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
+
+
+async def authorize_inventory_autocomplete(
+    user_id: int | None = Depends(get_current_user_id_optional),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Name-only suggestions require an active account with an existing ANALYZE membership."""
+    if user_id is None or await db.scalar(select(User.id).where(User.id == user_id, User.is_active.is_(True))) is None:
+        raise HTTPException(status_code=401, detail="Invalid or inactive user", headers={"WWW-Authenticate": "Bearer"})
+    membership = await db.scalar(
+        select(SpaceMemberORM.space_id)
+        .join(SpaceORM, SpaceORM.id == SpaceMemberORM.space_id)
+        .where(SpaceMemberORM.user_id == user_id, SpaceMemberORM.role.in_(ALLOWED_ROLES[SpacePermission.ANALYZE]))
+        .limit(1)
+    )
+    if membership is None:
+        raise HTTPException(status_code=403, detail="An ANALYZE membership in a valid space is required")
 
 
 async def authorize_space_request(

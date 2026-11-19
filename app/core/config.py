@@ -1,4 +1,5 @@
 from urllib.parse import quote_plus
+from typing import Literal
 
 from dotenv import load_dotenv
 from pydantic import Field
@@ -35,9 +36,16 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_AUTOCOMPLETE_MODEL: str = ""
+    GEMINI_AUTOCOMPLETE_WEB_SEARCH: bool = True
     GEMINI_MAX_OUTPUT_TOKENS: int = 500
     GEMINI_TEMPERATURE: float = 0.0
     GEMINI_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=60)
+
+    WINE_AUTOCOMPLETE_PROVIDER: Literal["deepseek", "gemini"] = "deepseek"
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_MODEL: str = "deepseek-flash"
+    DEEPSEEK_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=60)
 
     @property
     def ASYNC_DATABASE_URL(self) -> str:

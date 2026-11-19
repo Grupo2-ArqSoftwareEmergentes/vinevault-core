@@ -3,7 +3,7 @@ from pathlib import Path
 import logging
 
 from fastapi import FastAPI, Depends
-from .core.space_security import authorize_space_request
+from .core.space_security import authorize_inventory_autocomplete, authorize_space_request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import settings
@@ -36,6 +36,7 @@ from .telemetry.interfaces.rest.controllers.telemetry_controller import router a
 from .shared.exceptions import setup_exception_handlers
 from .wine_cellar.interfaces.rest.controllers.wine_cellar_controller import router as wine_cellar_router
 from .inventory_intelligence.interfaces.rest.controllers.intelligence_controller import router as intelligence_router
+from .inventory_intelligence.interfaces.rest.controllers.wine_autocomplete_controller import router as autocomplete_router
 
 # Configurar logging
 logging.basicConfig(
@@ -215,6 +216,7 @@ app.include_router(threshold_router, dependencies=[Depends(authorize_space_reque
 app.include_router(telemetry_router)
 app.include_router(wine_cellar_router, dependencies=[Depends(authorize_space_request)])
 app.include_router(intelligence_router, dependencies=[Depends(authorize_space_request)])
+app.include_router(autocomplete_router, dependencies=[Depends(authorize_inventory_autocomplete)])
 
 
 @app.get("/")

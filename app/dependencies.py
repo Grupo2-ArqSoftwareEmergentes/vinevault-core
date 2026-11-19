@@ -283,6 +283,19 @@ def get_alert_incident_service(
     )
 
 
+def get_wine_autocomplete_service():
+    from .core.config import settings
+    from .inventory_intelligence.applications.wine_autocomplete_service import WineAutocompleteService
+
+    if settings.WINE_AUTOCOMPLETE_PROVIDER == "deepseek":
+        from .inventory_intelligence.infrastructure.deepseek.wine_autocomplete_client import DeepSeekWineAutocompleteClient
+
+        return WineAutocompleteService(DeepSeekWineAutocompleteClient())
+    from .inventory_intelligence.infrastructure.gemini.wine_autocomplete_client import GeminiWineAutocompleteClient
+
+    return WineAutocompleteService(GeminiWineAutocompleteClient())
+
+
 def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
 ) -> int:
