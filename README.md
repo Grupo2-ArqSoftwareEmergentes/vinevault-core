@@ -168,6 +168,8 @@ Las pruebas crean y eliminan un esquema temporal único por caso; no usan las ta
 
 ## Análisis de inventario con IA
 
+`POST /api/v1/assistant/chat` ofrece conversación y modo `SOMMELIER_ANALYSIS` con contexto real del espacio/cava, autorización por membresía y DeepSeek. Contrato, límites de contexto y tratamiento de notas: [docs/assistant.md](docs/assistant.md).
+
 `POST /api/v1/ai/analyze-stock` conserva la respuesta JSON existente y omite Google cuando la cava no tiene registros de inventario. Para resultados incrementales, solicitar `Accept: text/event-stream` o `?stream=true`; el frontend debe procesar eventos SSE. Configuración, errores y contrato de integración: [docs/inventory-ai.md](docs/inventory-ai.md).
 
 ## Inventario unificado y salidas

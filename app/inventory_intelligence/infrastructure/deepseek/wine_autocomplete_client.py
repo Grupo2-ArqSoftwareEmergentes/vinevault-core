@@ -9,6 +9,7 @@ import httpx
 from app.core.config import settings
 from app.inventory_intelligence.applications.wine_autocomplete_prompts import EXTRACTION_INSTRUCTION, SYSTEM_INSTRUCTION, WINDOW_ESTIMATION_INSTRUCTION
 from app.inventory_intelligence.domain.models.wine_autocomplete import WineAutocompleteGeneration
+from app.shared.infrastructure.deepseek_client import DeepSeekClient
 
 
 class DeepSeekWineAutocompleteClient:
@@ -16,20 +17,6 @@ class DeepSeekWineAutocompleteClient:
 
     def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None):
         self.transport = transport
-
-    @staticmethod
-    async def _post_json(client: httpx.AsyncClient, path: str, payload: dict) -> dict:
-        async with client.stream("POST", path, json=payload) as response:
-            response.raise_for_status()
-            body = bytearray()
-            async for chunk in response.aiter_bytes():
-                body.extend(chunk)
-                if len(body) > 524288:
-                    raise ValueError("DeepSeek response exceeds size limit")
-            data = json.loads(body)
-            if not isinstance(data, dict):
-                raise ValueError("Expected a JSON object from DeepSeek")
-            return data
 
     @staticmethod
     def _web_evidence(data: dict) -> list[dict]:
@@ -68,21 +55,15 @@ class DeepSeekWineAutocompleteClient:
         if len(query) > 128:
             return ""
         async with asyncio.timeout(settings.DEEPSEEK_REQUEST_TIMEOUT_SECONDS):
-            async with httpx.AsyncClient(
-                base_url="https://api.deepseek.com",
-                headers={"Authorization": "Bearer " + settings.DEEPSEEK_API_KEY},
-                timeout=settings.DEEPSEEK_REQUEST_TIMEOUT_SECONDS,
-                transport=self.transport or httpx.AsyncHTTPTransport(retries=0),
-                follow_redirects=False,
-            ) as client:
-                search = await self._post_json(client, "/v1/tools/search", {
+            async with DeepSeekClient(transport=self.transport) as client:
+                search = await client.post_json("/v1/tools/search", {
                     "query": query, "count": 5, "need_content": True,
                 })
                 evidence = self._web_evidence(search)
                 if not evidence:
                     return ""
                 example = WineAutocompleteGeneration().model_dump(mode="json")
-                response = await self._post_json(client, "/chat/completions", {
+                response = await client.post_json("/chat/completions", {
                     "model": settings.DEEPSEEK_MODEL,
                     "messages": [
                         {"role": "system", "content": SYSTEM_INSTRUCTION + " " + EXTRACTION_INSTRUCTION + " " + WINDOW_ESTIMATION_INSTRUCTION

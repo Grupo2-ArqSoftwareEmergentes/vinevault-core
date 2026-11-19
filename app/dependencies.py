@@ -283,6 +283,19 @@ def get_alert_incident_service(
     )
 
 
+def get_assistant_provider():
+    from .assistant.infrastructure.deepseek_client import DeepSeekAssistantClient
+
+    return DeepSeekAssistantClient()
+
+
+def get_assistant_chat_service(db: AsyncSession = Depends(get_db), provider=Depends(get_assistant_provider)):
+    from .assistant.applications.chat_service import AssistantChatService
+    from .assistant.infrastructure.inventory_context_reader import SQLInventoryContextReader
+
+    return AssistantChatService(SQLInventoryContextReader(db), provider)
+
+
 def get_wine_autocomplete_service():
     from .core.config import settings
     from .inventory_intelligence.applications.wine_autocomplete_service import WineAutocompleteService
