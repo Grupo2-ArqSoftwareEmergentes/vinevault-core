@@ -5,6 +5,8 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from pydantic import ValidationError
 from sqlalchemy import func, inspect, select, text, update
 
@@ -231,7 +233,8 @@ class SubscriptionAPITests(PostgresAPITestCase):
             await connection.run_sync(upgrade_database)
             tables = await connection.run_sync(lambda sync: inspect(sync).get_table_names())
             self.assertIn("subscription_intents", tables)
-            self.assertEqual(await connection.scalar(text("SELECT version_num FROM alembic_version")), "20261119_subscription_intents")
+            expected_head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+            self.assertEqual(await connection.scalar(text("SELECT version_num FROM alembic_version")), expected_head)
         async with self.sessions() as session:
             self.assertEqual((await session.get(SpaceORM, UUID(own["id"]))).subscription_plan, SubscriptionPlan.FREE)
             self.assertEqual((await session.get(WineInventoryItemORM, UUID(item["id"]))).quantity, 3)

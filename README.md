@@ -174,6 +174,10 @@ Para descargar el inventario completo del espacio o una cava en Excel/PDF: `GET 
 
 `GET /api/v1/subscriptions/catalog` y `GET /api/v1/subscriptions/overview` exponen precios, límites y cupos. Las solicitudes de mejora o espacio adicional son intenciones pendientes sin cobro; no conceden beneficios. Contrato: [docs/subscriptions.md](docs/subscriptions.md).
 
+## Perfil y preferencias de cuenta
+
+`GET /api/v1/profile`, `PATCH /api/v1/profile` y `POST /api/v1/profile/change-password` gestionan los datos personales del usuario autenticado (`username`, `email`, `full_name`, idioma `es`/`en`) y el cambio seguro de contraseña. Contrato: [docs/profile.md](docs/profile.md).
+
 ## Análisis de inventario con IA
 
 `POST /api/v1/assistant/chat` ofrece conversación y modo `SOMMELIER_ANALYSIS` con contexto real del espacio/cava, autorización por membresía y DeepSeek. Contrato, límites de contexto y tratamiento de notas: [docs/assistant.md](docs/assistant.md).

@@ -41,6 +41,7 @@ from .inventory_intelligence.interfaces.rest.controllers.intelligence_controller
 from .inventory_intelligence.interfaces.rest.controllers.wine_autocomplete_controller import router as autocomplete_router
 from .assistant.interfaces.rest.controllers.assistant_controller import router as assistant_router
 from .subscriptions.interfaces.rest.controllers.subscription_controller import router as subscription_router
+from .profile.interfaces.rest.controllers.profile_controller import router as profile_router
 
 # Configurar logging
 logging.basicConfig(
@@ -225,6 +226,7 @@ app.include_router(intelligence_router, dependencies=[Depends(authorize_space_re
 app.include_router(autocomplete_router, dependencies=[Depends(authorize_inventory_autocomplete)])
 app.include_router(assistant_router)
 app.include_router(subscription_router)
+app.include_router(profile_router)
 
 
 @app.get("/")

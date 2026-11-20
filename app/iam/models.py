@@ -5,7 +5,10 @@ from ..core.database import Base
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("extra_spaces_allowance >= 0", name="user_extra_spaces_nonnegative"),)
+    __table_args__ = (
+        CheckConstraint("extra_spaces_allowance >= 0", name="user_extra_spaces_nonnegative"),
+        CheckConstraint("preferred_language IN ('es', 'en')", name="user_preferred_language_valid"),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
@@ -13,6 +16,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     password_hash = synonym("hashed_password")
     full_name = Column(String(255), nullable=False, default="", server_default="")
+    preferred_language = Column(String(5), nullable=False, default="es", server_default="es")
     extra_spaces_allowance = Column(Integer, nullable=False, default=0, server_default="0")
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)

@@ -289,6 +289,12 @@ def get_subscription_service(db: AsyncSession = Depends(get_db)):
     return SubscriptionService(db)
 
 
+def get_profile_service(db: AsyncSession = Depends(get_db)):
+    from .profile.applications.profile_service import ProfileService
+
+    return ProfileService(db)
+
+
 def get_assistant_provider():
     from .assistant.infrastructure.deepseek_client import DeepSeekAssistantClient
 

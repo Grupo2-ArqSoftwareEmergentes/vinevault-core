@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from app.shared.quota_policy import QuotaExceededError, QuotaResourceNotFoundError
 from app.subscriptions.domain.errors import SubscriptionError
+from app.profile.domain.errors import ProfileError
 
 class IAMException(Exception):
     def __init__(self, message: str, status_code: int = 400):
@@ -11,6 +12,10 @@ class IAMException(Exception):
         super().__init__(message)
 
 def setup_exception_handlers(app: FastAPI):
+    @app.exception_handler(ProfileError)
+    async def profile_exception_handler(request: Request, exc: ProfileError):
+        return JSONResponse(status_code=exc.status_code, content={"detail": {"code": exc.code, "message": exc.message}})
+
     @app.exception_handler(SubscriptionError)
     async def subscription_exception_handler(request: Request, exc: SubscriptionError):
         return JSONResponse(status_code=exc.status_code, content={"detail": {"code": exc.code, "message": exc.message}})
