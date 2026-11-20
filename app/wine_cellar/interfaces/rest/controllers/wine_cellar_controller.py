@@ -19,6 +19,8 @@ from ..resources.stock_movement_resource import StockExitRequest, StockMovementR
 from ..resources.request_models import CreateWineCellarInSpaceRequest
 from ..resources.wine_inventory_request import CreateWineItemInCellarRequest
 from app.core.database import AsyncSessionLocal
+from app.core.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.wine_cellar.applications import InventoryExcelError, WineInventoryExcelService
 from app.wine_cellar.applications.inventory_excel_service import XLSX_MIME_TYPE
 from app.wine_cellar.domain.models import WineCellar
@@ -213,11 +215,11 @@ async def export_wine_inventory(
     user_id: int = Depends(get_current_user_id),
     wine_cellar_repo = Depends(get_wine_cellar_repository),
     space_repo = Depends(get_space_repository),
+    db: AsyncSession = Depends(get_db),
 ):
     wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
 
-    async with AsyncSessionLocal() as session:
-        workbook_bytes = await WineInventoryExcelService().export_inventory(session, wine_cellar.id)
+    workbook_bytes = await WineInventoryExcelService().export_inventory(db, wine_cellar.id)
 
     filename = f"wine-cellar-{wine_cellar.id}-inventory.xlsx"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}

@@ -122,7 +122,7 @@ El historial es operativo, no un libro fiscal inmutable: se elimina en cascada s
 
 ## Excel e IA
 
-El Excel existente conserva su formato básico (`wine_name`, `wine_type`, `age_years`, `quantity`). Ahora admite celdas vacías en tipo/edad y conserva los metadatos avanzados de los IDs que actualiza; no es una exportación completa de todos los módulos avanzados.
+El Excel legacy y la plantilla conservan su formato básico (`wine_name`, `wine_type`, `age_years`, `quantity`). Admiten celdas vacías en tipo/edad y conservan los metadatos avanzados de los IDs que actualizan. Los informes nuevos de espacio/cava en Excel y PDF, con ficha ampliada y hoja de importación separada por cava, usan `GET /api/v1/inventory/export`; contrato: [inventory-exports.md](inventory-exports.md).
 
 La proyección de IA acepta tipo/edad desconocidos y añade añada si existe. Sigue enviando únicamente campos mínimos y resúmenes acotados; no envía costos, notas personales, compañía ni aromas a Gemini por incorporar estas columnas al modelo maestro.
 

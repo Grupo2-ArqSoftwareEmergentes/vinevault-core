@@ -35,6 +35,7 @@ from .telemetry.infrastructure.database import models as _telemetry_models  # no
 from .telemetry.interfaces.rest.controllers.telemetry_controller import router as telemetry_router
 from .shared.exceptions import setup_exception_handlers
 from .wine_cellar.interfaces.rest.controllers.wine_cellar_controller import router as wine_cellar_router
+from .wine_cellar.interfaces.rest.controllers.inventory_export_controller import router as inventory_export_router
 from .inventory_intelligence.interfaces.rest.controllers.intelligence_controller import router as intelligence_router
 from .inventory_intelligence.interfaces.rest.controllers.wine_autocomplete_controller import router as autocomplete_router
 from .assistant.interfaces.rest.controllers.assistant_controller import router as assistant_router
@@ -202,6 +203,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 setup_exception_handlers(app)
@@ -216,6 +218,7 @@ app.include_router(user_context_router, dependencies=[Depends(authorize_space_re
 app.include_router(threshold_router, dependencies=[Depends(authorize_space_request)])
 app.include_router(telemetry_router)
 app.include_router(wine_cellar_router, dependencies=[Depends(authorize_space_request)])
+app.include_router(inventory_export_router, dependencies=[Depends(authorize_space_request)])
 app.include_router(intelligence_router, dependencies=[Depends(authorize_space_request)])
 app.include_router(autocomplete_router, dependencies=[Depends(authorize_inventory_autocomplete)])
 app.include_router(assistant_router)

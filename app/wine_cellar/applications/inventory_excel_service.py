@@ -217,7 +217,7 @@ class WineInventoryExcelService:
             if not target:
                 raise InventoryExcelError("The workbook sheet target is missing")
 
-            sheet_path = target if target.startswith("xl/") else f"xl/{target.lstrip('/')}"
+            sheet_path = target.lstrip("/") if target.startswith("/") else target if target.startswith("xl/") else f"xl/{target}"
             sheet_xml = self._read_xml(archive, sheet_path)
             sheet_root = ET.fromstring(sheet_xml)
             rows = self._parse_sheet_rows(sheet_root, shared_strings)

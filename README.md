@@ -166,6 +166,10 @@ $env:TEST_DATABASE_URL='postgresql+asyncpg://postgres:postgres@localhost:5432/vi
 
 Las pruebas crean y eliminan un esquema temporal único por caso; no usan las tablas existentes ni ejecutan el arranque/seeds de la aplicación. El usuario de pruebas necesita permisos para crear esquemas. Sin `TEST_DATABASE_URL`, las pruebas se omiten. Cubren JWT, aislamiento entre usuarios, filtros, compatibilidad de rutas, integridad referencial, creación concurrente sin duplicar organizaciones, una cava inicial por espacio y rollback completo ante fallos posteriores a la inserción de la cava.
 
+## Exportación de inventario
+
+Para descargar el inventario completo del espacio o una cava en Excel/PDF: `GET /api/v1/inventory/export?space_id=<uuid>&cellar_id=<uuid>&format=xlsx|pdf`. Plantilla e importación legacy se conservan; detalles: [docs/inventory-exports.md](docs/inventory-exports.md).
+
 ## Análisis de inventario con IA
 
 `POST /api/v1/assistant/chat` ofrece conversación y modo `SOMMELIER_ANALYSIS` con contexto real del espacio/cava, autorización por membresía y DeepSeek. Contrato, límites de contexto y tratamiento de notas: [docs/assistant.md](docs/assistant.md).
