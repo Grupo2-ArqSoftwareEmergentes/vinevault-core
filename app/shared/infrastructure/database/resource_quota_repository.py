@@ -11,6 +11,9 @@ from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineC
 from app.wine_cellar.infrastructure.database.models.wine_inventory_item_orm import WineInventoryItemORM
 from app.shared.quota_policy import InventoryUsage, QuotaExceededError, QuotaResourceNotFoundError, can_create_space, cellar_limit
 from app.subscriptions.domain.catalog import account_space_limit
+from app.subscriptions.infrastructure.database.entitlements import effective_tier, effective_tiers
+from app.subscriptions.infrastructure.database.models import ActiveSubscriptionORM
+from datetime import datetime, timezone
 
 
 class ResourceQuotaRepository:
@@ -19,16 +22,29 @@ class ResourceQuotaRepository:
         self.session = session
 
     async def account(self, user_id: int, *, lock: bool = False) -> tuple[int, list[tuple[str, str]]]:
-        statement = select(User.extra_spaces_allowance).where(User.id == user_id)
+        statement = select(User.id, User.extra_spaces_allowance).where(User.id == user_id)
         if lock:
             statement = statement.with_for_update()
-        extra = await self.session.scalar(statement)
-        if extra is None:
+        user = (await self.session.execute(statement)).one_or_none()
+        if user is None:
             raise QuotaResourceNotFoundError("User not found")
+        purchased = await self.session.scalar(select(func.coalesce(func.sum(ActiveSubscriptionORM.quantity), 0)).where(
+            ActiveSubscriptionORM.requester_user_id == user_id,
+            ActiveSubscriptionORM.kind == "EXTRA_SPACE",
+            ActiveSubscriptionORM.status == "ACTIVE",
+            ActiveSubscriptionORM.current_period_end > datetime.now(timezone.utc),
+        ))
+        extra = int(user.extra_spaces_allowance) + int(purchased or 0)
         rows = await self.session.execute(select(SpaceORM.space_type, SpaceORM.subscription_plan).join(
             SpaceMemberORM, SpaceMemberORM.space_id == SpaceORM.id,
         ).where(SpaceMemberORM.user_id == user_id, SpaceMemberORM.role == SpaceRole.OWNER))
         return extra, [(purpose.value, plan.value) for purpose, plan in rows]
+
+    async def effective_tier(self, space: SpaceORM) -> str:
+        return await effective_tier(self.session, space)
+
+    async def effective_tiers(self, spaces) -> dict:
+        return await effective_tiers(self.session, spaces)
 
     async def require_space_slot(self, user_id: int, purpose: str) -> None:
         extra, owned = await self.account(user_id, lock=True)
@@ -58,7 +74,7 @@ class ResourceQuotaRepository:
 
     async def require_cellar_slot(self, space: SpaceORM) -> None:
         current = await self.session.scalar(select(func.count()).select_from(WineCellarORM).where(WineCellarORM.space_id == space.id))
-        maximum = cellar_limit(space.subscription_plan.value, space.extra_cellars_allowance, space.space_type.value)
+        maximum = cellar_limit(await self.effective_tier(space), space.extra_cellars_allowance, space.space_type.value)
         if current >= maximum:
             raise QuotaExceededError("CELLAR_LIMIT_REACHED", "El espacio alcanzó el límite de cavas de su plan.", current, maximum)
 

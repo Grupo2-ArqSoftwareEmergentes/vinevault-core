@@ -161,7 +161,7 @@ class PersonalContextTests(PostgresAPITestCase):
             response = await self.client.get("/api/v1/user/context", headers=self.headers())
         finally:
             event.remove(self.engine.sync_engine, "before_cursor_execute", record_statement)
-        self.assertEqual(len(statements), 6, statements)  # identity, directory and bounded quota aggregates
+        self.assertEqual(len(statements), 8, statements)  # identity, directory, effective tiers/extras and bounded quota aggregates
         self.assertEqual(response.status_code, 200)
         context = response.json()
         self.assertEqual(len(context["spaces"]), 2)

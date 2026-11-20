@@ -11,7 +11,7 @@ Las cuotas se validan en el backend, además de los permisos de membresía/rol. 
 | Botellas de un COLLECTOR | 50 en todo el espacio | Sin límite de producto | Sin ampliación de botellas mediante los campos anteriores |
 | SKUs de un BUSINESS | 25 en todo el espacio | Sin límite de producto | Sin ampliación de SKUs mediante los campos anteriores |
 
-Los dos controles de ampliación son enteros no negativos, con default `0`. Solo son datos de lectura en las APIs de usuario: no se pueden autoconceder enviándolos al registrar una cuenta o crear un espacio. Este cambio no implementa checkout, cobros ni un endpoint público para modificar planes/cupos.
+Los dos controles de ampliación son enteros no negativos, con default `0`. Solo son datos de lectura en las APIs de usuario: no se pueden autoconceder enviándolos al registrar una cuenta o crear un espacio. Los planes/cupos ahora se solicitan o activan en modo simulado mediante `app/subscriptions`; no hay pasarela real ni cobros, y los cupos efectivos combinan el valor manual con add-ons vigentes. Contrato: [subscriptions.md](subscriptions.md).
 
 ### Espacios de cuenta
 
@@ -31,7 +31,7 @@ Los dos controles de ampliación son enteros no negativos, con default `0`. Solo
 - Los límites se aplican a altas, cambios de cantidad e importaciones Excel. El archivo completo se confirma o se revierte según su balance final; no se rechaza por un exceso transitorio entre filas que el mismo archivo compensa.
 - Stock exits/descorches reducen consumo y se mantienen transaccionales. Las actualizaciones solo de ficha no consumen recursos nuevos.
 
-Los límites se calculan a partir de `subscription_plan` (`FREE`/`PRO`) y salen de `app/subscriptions/domain/catalog.py`, junto con el precio y el plan de análisis IA. `subscription_status` se sigue informando; no se inventa una política adicional de downgrade automático por vencimiento. Las cotas técnicas de tipos de datos (por ejemplo INTEGER por registro) siguen vigentes aunque no exista cuota de producto. Catálogo y solicitudes preparatorias de cambio de plan: [subscriptions.md](subscriptions.md).
+Los límites se calculan a partir del plan efectivo (`FREE`/`PRO`; una suscripción Pro vencida ya no cuenta) y salen de `app/subscriptions/domain/catalog.py`, junto con el precio y el plan de análisis IA. `subscription_status` se sigue informando; no se inventa una política adicional de downgrade automático por vencimiento. Las cotas técnicas de tipos de datos (por ejemplo INTEGER por registro) siguen vigentes aunque no exista cuota de producto. Catálogo, activación simulada y cancelación: [subscriptions.md](subscriptions.md).
 
 ## API y errores
 

@@ -25,6 +25,7 @@ async def get_user_context(
     spaces = await space_repo.find_all_with_membership(user_id)
     wine_cellars = await wine_cellar_repo.find_all_by_owner_user_id(user_id)
     usage = await quota_repo.all_space_usage([space.id for space, role in spaces])
+    tiers = await quota_repo.effective_tiers([space for space, _ in spaces])
     extra, owned = await quota_repo.account(user_id)
 
     def resource(used: int, limit: int | None) -> ResourceUsageResponse:
@@ -32,16 +33,17 @@ async def get_user_context(
 
     def space_quotas(space) -> SpaceQuotaResponse:
         cellars, inventory = usage.get(space.id, (0, InventoryUsage(0, 0)))
-        limited_resource, maximum = inventory_limit(space.subscription_plan.value, space.space_type.value)
+        tier = tiers[space.id]
+        limited_resource, maximum = inventory_limit(tier, space.space_type.value)
         return SpaceQuotaResponse(
-            cellars=resource(cellars, cellar_limit(space.subscription_plan.value, space.extra_cellars_allowance, space.space_type.value)),
+            cellars=resource(cellars, cellar_limit(tier, space.extra_cellars_allowance, space.space_type.value)),
             bottles=resource(inventory.bottles, maximum if limited_resource == "bottles" else None),
             skus=resource(inventory.skus, maximum if limited_resource == "skus" else None),
         )
     return UserContextResponse(
         spaces=[ContextSpaceResponse(
             id=space.id, name=space.name, role=role, space_type=space.space_type,
-            subscription_plan=space.subscription_plan, subscription_status=space.subscription_status,
+            subscription_plan=tiers[space.id], subscription_status=space.subscription_status,
             extra_cellars_allowance=space.extra_cellars_allowance, quotas=space_quotas(space),
         ) for space, role in spaces],
         wine_cellars=[

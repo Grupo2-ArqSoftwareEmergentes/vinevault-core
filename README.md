@@ -172,7 +172,7 @@ Para descargar el inventario completo del espacio o una cava en Excel/PDF: `GET 
 
 ## Planes y suscripciones
 
-`GET /api/v1/subscriptions/catalog` y `GET /api/v1/subscriptions/overview` exponen precios, límites y cupos. Las solicitudes de mejora o espacio adicional son intenciones pendientes sin cobro; no conceden beneficios. Contrato: [docs/subscriptions.md](docs/subscriptions.md).
+`GET /api/v1/subscriptions/catalog` y `GET /api/v1/subscriptions/overview` exponen precios, límites, suscripciones activas y gasto mensual. Las compras con `confirm_simulated_payment=true` activan PRO/cupos de inmediato con ciclo de 30 días; la cancelación conserva el beneficio hasta el cierre del ciclo. Contrato: [docs/subscriptions.md](docs/subscriptions.md).
 
 ## Perfil y preferencias de cuenta
 

@@ -15,6 +15,7 @@ from app.device.infrastructure.database.models.space_member_orm import SpaceMemb
 from app.device.infrastructure.database.models.device_assignment_orm import DeviceAssignmentORM
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
 from app.subscriptions.domain.catalog import PLANS, require_analysis_feature
+from app.subscriptions.infrastructure.database.entitlements import effective_tier
 
 
 async def authorize_inventory_autocomplete(
@@ -102,9 +103,9 @@ async def authorize_space_request(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     if permission == SpacePermission.ANALYZE:
-        plan = (await db.execute(select(SpaceORM.space_type, SpaceORM.subscription_plan).where(SpaceORM.id == space_id))).one_or_none()
-        if plan is None:
+        space = await db.get(SpaceORM, space_id)
+        if space is None:
             raise HTTPException(404, "Space not found")
-        require_analysis_feature(plan.space_type.value, plan.subscription_plan.value)
+        require_analysis_feature(space.space_type.value, await effective_tier(db, space))
     request.state.space_role = role
     request.state.space_id = space_id

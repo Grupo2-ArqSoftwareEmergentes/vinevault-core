@@ -5,8 +5,9 @@ from types import MappingProxyType
 from .errors import SubscriptionError
 
 
-CATALOG_VERSION = "2026-11-19"
+CATALOG_VERSION = "2026-11-20"
 COURTESY_PURPOSE_SLOTS = MappingProxyType({"COLLECTOR": 1, "BUSINESS": 1})
+CYCLE_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,7 @@ def catalog() -> dict:
     return {
         "version": CATALOG_VERSION, "billing_mode": "PREPARATORY", "plan_scope": "SPACE",
         "courtesy_spaces": dict(COURTESY_PURPOSE_SLOTS),
+        "cycle_days": CYCLE_DAYS, "simulated_payment_available": True, "activation_currency": "PEN",
         "plans": [asdict(plan) for plan in PLANS.values()],
         "addons": [{"code": "EXTRA_SPACE", "scope": "ACCOUNT", "unit": "SPACE_SLOT", "prices": [asdict(price) for price in EXTRA_SPACE_PRICES]}],
     }

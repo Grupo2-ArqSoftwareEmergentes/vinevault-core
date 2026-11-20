@@ -1,11 +1,14 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.dependencies import get_subscription_service
 from app.subscriptions.applications.subscription_service import SubscriptionService
 from app.subscriptions.domain.catalog import catalog
-from ..resources.subscription_resources import CatalogResponse, ExtraSpaceRequest, OverviewResponse, SubscriptionIntentResponse, UpgradeRequest
+from ..resources.subscription_resources import (
+    ActiveSubscriptionResponse, CatalogResponse, ExtraSpaceRequest, OverviewResponse,
+    SubscriptionIntentResponse, UpgradeRequest,
+)
 from ..security import require_active_subscription_user
 
 
@@ -26,24 +29,41 @@ async def get_overview(
     return await service.overview(user_id, space_id, cellar_id)
 
 
-@router.post("/plan-change-requests", response_model=SubscriptionIntentResponse, status_code=202)
+@router.post("/plan-change-requests", response_model=SubscriptionIntentResponse)
 async def request_upgrade(
-    payload: UpgradeRequest, user_id: int = Depends(require_active_subscription_user),
+    payload: UpgradeRequest, response: Response,
+    user_id: int = Depends(require_active_subscription_user),
     service: SubscriptionService = Depends(get_subscription_service),
 ):
-    intent = await service.create_request(user_id, kind="UPGRADE_PRO", key=payload.idempotency_key,
-        currency=payload.currency, space_id=payload.space_id, cellar_id=payload.cellar_id)
-    return SubscriptionIntentResponse.from_intent(intent)
+    intent, subscription = await service.create_request(
+        user_id, kind="UPGRADE_PRO", key=payload.idempotency_key, currency=payload.currency,
+        space_id=payload.space_id, cellar_id=payload.cellar_id, activate=payload.confirm_simulated_payment,
+    )
+    response.status_code = 201 if subscription is not None else 202
+    return SubscriptionIntentResponse.from_intent(intent, subscription)
 
 
-@router.post("/extra-space-requests", response_model=SubscriptionIntentResponse, status_code=202)
+@router.post("/extra-space-requests", response_model=SubscriptionIntentResponse)
 async def request_extra_space(
-    payload: ExtraSpaceRequest, user_id: int = Depends(require_active_subscription_user),
+    payload: ExtraSpaceRequest, response: Response,
+    user_id: int = Depends(require_active_subscription_user),
     service: SubscriptionService = Depends(get_subscription_service),
 ):
-    intent = await service.create_request(user_id, kind="EXTRA_SPACE", key=payload.idempotency_key,
-        currency=payload.currency, quantity=payload.quantity)
-    return SubscriptionIntentResponse.from_intent(intent)
+    intent, subscription = await service.create_request(
+        user_id, kind="EXTRA_SPACE", key=payload.idempotency_key, currency=payload.currency,
+        quantity=payload.quantity, activate=payload.confirm_simulated_payment,
+    )
+    response.status_code = 201 if subscription is not None else 202
+    return SubscriptionIntentResponse.from_intent(intent, subscription)
+
+
+@router.post("/{subscription_id}/cancel", response_model=ActiveSubscriptionResponse)
+async def cancel_subscription(
+    subscription_id: UUID,
+    user_id: int = Depends(require_active_subscription_user),
+    service: SubscriptionService = Depends(get_subscription_service),
+):
+    return await service.cancel(user_id, subscription_id)
 
 
 @router.get("/requests", response_model=list[SubscriptionIntentResponse])

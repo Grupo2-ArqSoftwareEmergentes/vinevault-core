@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import unittest
 from unittest.mock import patch
@@ -18,7 +19,7 @@ from app.iam.models import User
 from app.shared.quota_policy import account_space_limit, cellar_limit, inventory_limit
 from app.subscriptions.domain.catalog import EXTRA_SPACE_PRICES, PLANS, catalog, get_plan, require_analysis_feature
 from app.subscriptions.domain.errors import SubscriptionError
-from app.subscriptions.infrastructure.database.models import SubscriptionIntentORM
+from app.subscriptions.infrastructure.database.models import ActiveSubscriptionORM, SubscriptionIntentORM
 from app.subscriptions.interfaces.rest.resources.subscription_resources import CatalogResponse, ExtraSpaceRequest
 from app.wine_cellar.infrastructure.database.models.wine_inventory_item_orm import WineInventoryItemORM
 from test_personal_context import PostgresAPITestCase
@@ -80,6 +81,16 @@ class SubscriptionAPITests(PostgresAPITestCase):
         return await self.client.post(BASE + "/extra-space-requests", headers=self.headers(user_id), json={
             "idempotency_key": str(uuid4()), **values,
         })
+
+    async def activate_upgrade(self, space, user_id=1, **values):
+        response = await self.upgrade(space, user_id=user_id, confirm_simulated_payment=True, **values)
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
+    async def activate_extra(self, user_id=1, **values):
+        response = await self.extra(user_id=user_id, confirm_simulated_payment=True, **values)
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
 
     async def test_catalog_and_overview_match_existing_context_and_real_usage(self):
         own = await self.space()
@@ -228,11 +239,13 @@ class SubscriptionAPITests(PostgresAPITestCase):
         own = await self.space()
         item = await self.create_inventory(own["default_wine_cellar"])
         async with self.engine.begin() as connection:
+            await connection.execute(text("DROP TABLE active_subscriptions"))
             await connection.execute(text("DROP TABLE subscription_intents"))
             await connection.run_sync(upgrade_database)
             await connection.run_sync(upgrade_database)
             tables = await connection.run_sync(lambda sync: inspect(sync).get_table_names())
             self.assertIn("subscription_intents", tables)
+            self.assertIn("active_subscriptions", tables)
             expected_head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
             self.assertEqual(await connection.scalar(text("SELECT version_num FROM alembic_version")), expected_head)
         async with self.sessions() as session:

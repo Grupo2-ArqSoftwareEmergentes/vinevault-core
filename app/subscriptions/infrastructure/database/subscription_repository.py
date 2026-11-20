@@ -1,10 +1,11 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.iam.models import User
-from .models import SubscriptionIntentORM
+from .models import ActiveSubscriptionORM, SubscriptionIntentORM
 
 
 class SubscriptionRepository:
@@ -20,11 +21,55 @@ class SubscriptionRepository:
             SubscriptionIntentORM.requester_user_id == user_id, SubscriptionIntentORM.idempotency_key == key,
         ))
 
-    async def pending_upgrade(self, space_id: UUID):
-        return await self.session.scalar(select(SubscriptionIntentORM.id).where(
+    async def pending_upgrade(self, space_id: UUID, *, exclude_id: UUID | None = None):
+        query = select(SubscriptionIntentORM.id).where(
+            SubscriptionIntentORM.space_id == space_id, SubscriptionIntentORM.kind == "UPGRADE_PRO",
+            SubscriptionIntentORM.status == "PENDING_PAYMENT",
+        )
+        if exclude_id is not None:
+            query = query.where(SubscriptionIntentORM.id != exclude_id)
+        return await self.session.scalar(query)
+
+    async def pending_upgrades(self, space_id: UUID):
+        rows = await self.session.scalars(select(SubscriptionIntentORM).where(
             SubscriptionIntentORM.space_id == space_id, SubscriptionIntentORM.kind == "UPGRADE_PRO",
             SubscriptionIntentORM.status == "PENDING_PAYMENT",
         ))
+        return list(rows)
+
+    async def subscription_for_intent(self, intent_id: UUID):
+        return await self.session.scalar(select(ActiveSubscriptionORM).where(ActiveSubscriptionORM.intent_id == intent_id))
+
+    async def active_pro(self, space_id: UUID, *, lock: bool = False):
+        query = select(ActiveSubscriptionORM).where(
+            ActiveSubscriptionORM.space_id == space_id, ActiveSubscriptionORM.kind == "UPGRADE_PRO",
+            ActiveSubscriptionORM.status == "ACTIVE",
+            ActiveSubscriptionORM.current_period_end > datetime.now(timezone.utc),
+        )
+        if lock:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        return await self.session.scalar(query)
+
+    async def active_for_user(self, user_id: int):
+        rows = await self.session.scalars(select(ActiveSubscriptionORM).where(
+            ActiveSubscriptionORM.requester_user_id == user_id,
+            ActiveSubscriptionORM.status == "ACTIVE",
+            ActiveSubscriptionORM.current_period_end > datetime.now(timezone.utc),
+        ).order_by(ActiveSubscriptionORM.created_at.desc(), ActiveSubscriptionORM.id))
+        return list(rows)
+
+    async def active_for_space(self, space_id: UUID):
+        return await self.session.scalar(select(ActiveSubscriptionORM).where(
+            ActiveSubscriptionORM.space_id == space_id, ActiveSubscriptionORM.kind == "UPGRADE_PRO",
+            ActiveSubscriptionORM.status == "ACTIVE",
+            ActiveSubscriptionORM.current_period_end > datetime.now(timezone.utc),
+        ))
+
+    async def by_id(self, subscription_id: UUID, *, lock: bool = False):
+        query = select(ActiveSubscriptionORM).where(ActiveSubscriptionORM.id == subscription_id)
+        if lock:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        return await self.session.scalar(query)
 
     async def list_for_user(self, user_id: int, limit: int, offset: int):
         rows = await self.session.scalars(select(SubscriptionIntentORM).where(
@@ -36,3 +81,8 @@ class SubscriptionRepository:
         self.session.add(intent)
         await self.session.flush()
         return intent
+
+    async def add_subscription(self, subscription: ActiveSubscriptionORM):
+        self.session.add(subscription)
+        await self.session.flush()
+        return subscription

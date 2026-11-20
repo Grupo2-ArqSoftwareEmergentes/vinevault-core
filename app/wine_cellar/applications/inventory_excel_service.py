@@ -93,7 +93,8 @@ class WineInventoryExcelService:
         async with session.begin():
             quotas = ResourceQuotaRepository(session)
             space = await quotas.lock_for_cellar(wine_cellar_id)
-            before = await quotas.usage(space.id) if space.subscription_plan.value == "FREE" else None
+            tier = await quotas.effective_tier(space)
+            before = await quotas.usage(space.id) if tier == "FREE" else None
             for parsed_row in parsed_rows:
                 if parsed_row.item_id is None:
                     session.add(
@@ -131,7 +132,7 @@ class WineInventoryExcelService:
 
             await session.flush()
             if before is not None:
-                validate_inventory_growth(space.subscription_plan.value, space.space_type.value, before, await quotas.usage(space.id))
+                validate_inventory_growth(tier, space.space_type.value, before, await quotas.usage(space.id))
 
         return InventoryImportResult(
             sheet_name=sheet_name,

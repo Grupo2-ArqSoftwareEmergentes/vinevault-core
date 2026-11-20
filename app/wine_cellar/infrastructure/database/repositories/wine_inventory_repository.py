@@ -78,11 +78,12 @@ class WineInventoryRepository:
     async def save(self, wine_item: WineInventoryItem) -> WineInventoryItem:
         quotas = ResourceQuotaRepository(self._session)
         space = await quotas.lock_for_cellar(wine_item.wine_cellar_id)
-        before = await quotas.usage(space.id) if space.subscription_plan.value == "FREE" else None
+        tier = await quotas.effective_tier(space)
+        before = await quotas.usage(space.id) if tier == "FREE" else None
         orm = await self._session.merge(WineInventoryItemORM.from_domain(wine_item))
         await self._session.flush()
         if before is not None:
-            validate_inventory_growth(space.subscription_plan.value, space.space_type.value, before, await quotas.usage(space.id))
+            validate_inventory_growth(tier, space.space_type.value, before, await quotas.usage(space.id))
         if self._auto_commit:
             await self._session.commit()
         result = await self._session.execute(select(WineInventoryItemORM).where(WineInventoryItemORM.id == orm.id))
