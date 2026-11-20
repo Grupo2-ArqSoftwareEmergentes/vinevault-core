@@ -50,6 +50,8 @@ async def init_db():
         def validate_existing_schema(connection):
             inspector = inspect(connection)
             tables = set(inspector.get_table_names())
+            if "users" in tables and "subscription_intents" not in tables:
+                raise RuntimeError("Database migration required: python -m alembic upgrade head")
             if "users" in tables and not {"full_name", "extra_spaces_allowance"}.issubset({c["name"] for c in inspector.get_columns("users")}):
                 raise RuntimeError("Database migration required: python -m alembic upgrade head")
             if "spaces" in tables:

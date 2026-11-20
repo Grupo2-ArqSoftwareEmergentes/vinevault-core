@@ -9,6 +9,7 @@ from app.device.infrastructure.database import models as _device
 from app.wine_cellar.infrastructure.database import models as _wine
 from app.telemetry.infrastructure.database import models as _telemetry
 from app.shared.infrastructure.database import models as _shared
+from app.subscriptions.infrastructure.database import models as _subscriptions
 
 
 def run_migrations(connection):

@@ -2,7 +2,7 @@
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -14,6 +14,7 @@ from app.device.infrastructure.database.models.space_orm import SpaceORM
 from app.device.infrastructure.database.models.space_member_orm import SpaceMemberORM
 from app.device.infrastructure.database.models.device_assignment_orm import DeviceAssignmentORM
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
+from app.subscriptions.domain.catalog import PLANS, require_analysis_feature
 
 
 async def authorize_inventory_autocomplete(
@@ -27,6 +28,8 @@ async def authorize_inventory_autocomplete(
         select(SpaceMemberORM.space_id)
         .join(SpaceORM, SpaceORM.id == SpaceMemberORM.space_id)
         .where(SpaceMemberORM.user_id == user_id, SpaceMemberORM.role.in_(ALLOWED_ROLES[SpacePermission.ANALYZE]))
+        .where(or_(False, *(and_(SpaceORM.space_type == plan.purpose, SpaceORM.subscription_plan == plan.tier)
+                            for plan in PLANS.values() if plan.ai_analysis_enabled)))
         .limit(1)
     )
     if membership is None:
@@ -98,5 +101,10 @@ async def authorize_space_request(
         role = await SpaceAuthorizationService(SpaceMemberRepository(db)).require(space_id, user_id, permission)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if permission == SpacePermission.ANALYZE:
+        plan = (await db.execute(select(SpaceORM.space_type, SpaceORM.subscription_plan).where(SpaceORM.id == space_id))).one_or_none()
+        if plan is None:
+            raise HTTPException(404, "Space not found")
+        require_analysis_feature(plan.space_type.value, plan.subscription_plan.value)
     request.state.space_role = role
     request.state.space_id = space_id

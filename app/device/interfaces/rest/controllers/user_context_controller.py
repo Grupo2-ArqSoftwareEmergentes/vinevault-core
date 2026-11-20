@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.dependencies import get_current_user_id, get_space_repository, get_wine_cellar_repository, get_resource_quota_repository
 from app.shared.quota_policy import InventoryUsage, cellar_limit, can_create_space, inventory_limit
+from app.subscriptions.domain.catalog import account_space_limit
 from ..resources.user_context_response import (
     ContextSpaceResponse,
     ContextWineCellarResponse,
@@ -33,7 +34,7 @@ async def get_user_context(
         cellars, inventory = usage.get(space.id, (0, InventoryUsage(0, 0)))
         limited_resource, maximum = inventory_limit(space.subscription_plan.value, space.space_type.value)
         return SpaceQuotaResponse(
-            cellars=resource(cellars, cellar_limit(space.subscription_plan.value, space.extra_cellars_allowance)),
+            cellars=resource(cellars, cellar_limit(space.subscription_plan.value, space.extra_cellars_allowance, space.space_type.value)),
             bottles=resource(inventory.bottles, maximum if limited_resource == "bottles" else None),
             skus=resource(inventory.skus, maximum if limited_resource == "skus" else None),
         )
@@ -48,8 +49,8 @@ async def get_user_context(
             for cellar in wine_cellars
         ],
         account_quota=AccountQuotaResponse(
-            extra_spaces_allowance=extra, current_spaces=len(owned), max_spaces=2 + extra,
-            remaining_spaces=max(0, 2 + extra - len(owned)),
+            extra_spaces_allowance=extra, current_spaces=len(owned), max_spaces=account_space_limit(extra),
+            remaining_spaces=max(0, account_space_limit(extra) - len(owned)),
             can_create_collector=can_create_space(owned, extra, "COLLECTOR"),
             can_create_business=can_create_space(owned, extra, "BUSINESS"),
         ),

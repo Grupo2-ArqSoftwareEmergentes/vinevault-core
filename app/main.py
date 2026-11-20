@@ -22,6 +22,7 @@ from .device.infrastructure.database import models as _device_models  # noqa: F4
 from .device.infrastructure.kafka import KafkaDeviceEventPublisher
 from .device.infrastructure.kafka.device_event_consumer import KafkaEdgeEventConsumer
 from .shared.infrastructure.database import models as _shared_models  # noqa: F401
+from .subscriptions.infrastructure.database import models as _subscription_models  # noqa: F401
 from .shared.infrastructure.kafka import KafkaOutboxPublisher
 from .device.interfaces.rest.controllers.device_controller import router as device_router
 from .device.interfaces.rest.controllers.alert_controller import router as alert_router
@@ -39,6 +40,7 @@ from .wine_cellar.interfaces.rest.controllers.inventory_export_controller import
 from .inventory_intelligence.interfaces.rest.controllers.intelligence_controller import router as intelligence_router
 from .inventory_intelligence.interfaces.rest.controllers.wine_autocomplete_controller import router as autocomplete_router
 from .assistant.interfaces.rest.controllers.assistant_controller import router as assistant_router
+from .subscriptions.interfaces.rest.controllers.subscription_controller import router as subscription_router
 
 # Configurar logging
 logging.basicConfig(
@@ -222,6 +224,7 @@ app.include_router(inventory_export_router, dependencies=[Depends(authorize_spac
 app.include_router(intelligence_router, dependencies=[Depends(authorize_space_request)])
 app.include_router(autocomplete_router, dependencies=[Depends(authorize_inventory_autocomplete)])
 app.include_router(assistant_router)
+app.include_router(subscription_router)
 
 
 @app.get("/")

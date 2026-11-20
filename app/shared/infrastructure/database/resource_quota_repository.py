@@ -10,6 +10,7 @@ from app.device.domain.models.value_objects.space_access import SpaceRole
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
 from app.wine_cellar.infrastructure.database.models.wine_inventory_item_orm import WineInventoryItemORM
 from app.shared.quota_policy import InventoryUsage, QuotaExceededError, QuotaResourceNotFoundError, can_create_space, cellar_limit
+from app.subscriptions.domain.catalog import account_space_limit
 
 
 class ResourceQuotaRepository:
@@ -32,7 +33,7 @@ class ResourceQuotaRepository:
     async def require_space_slot(self, user_id: int, purpose: str) -> None:
         extra, owned = await self.account(user_id, lock=True)
         if not can_create_space(owned, extra, purpose):
-            raise QuotaExceededError("SPACE_LIMIT_REACHED", "La cuenta no tiene cupo disponible para otro espacio de este tipo.", len(owned), 2 + extra)
+            raise QuotaExceededError("SPACE_LIMIT_REACHED", "La cuenta no tiene cupo disponible para otro espacio de este tipo.", len(owned), account_space_limit(extra))
 
     async def lock_space(self, space_id: UUID) -> SpaceORM:
         space = await self.session.scalar(select(SpaceORM).where(SpaceORM.id == space_id).with_for_update().execution_options(populate_existing=True))
@@ -57,7 +58,7 @@ class ResourceQuotaRepository:
 
     async def require_cellar_slot(self, space: SpaceORM) -> None:
         current = await self.session.scalar(select(func.count()).select_from(WineCellarORM).where(WineCellarORM.space_id == space.id))
-        maximum = cellar_limit(space.subscription_plan.value, space.extra_cellars_allowance)
+        maximum = cellar_limit(space.subscription_plan.value, space.extra_cellars_allowance, space.space_type.value)
         if current >= maximum:
             raise QuotaExceededError("CELLAR_LIMIT_REACHED", "El espacio alcanzó el límite de cavas de su plan.", current, maximum)
 

@@ -283,6 +283,12 @@ def get_alert_incident_service(
     )
 
 
+def get_subscription_service(db: AsyncSession = Depends(get_db)):
+    from .subscriptions.applications.subscription_service import SubscriptionService
+
+    return SubscriptionService(db)
+
+
 def get_assistant_provider():
     from .assistant.infrastructure.deepseek_client import DeepSeekAssistantClient
 

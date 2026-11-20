@@ -31,7 +31,7 @@ Los dos controles de ampliación son enteros no negativos, con default `0`. Solo
 - Los límites se aplican a altas, cambios de cantidad e importaciones Excel. El archivo completo se confirma o se revierte según su balance final; no se rechaza por un exceso transitorio entre filas que el mismo archivo compensa.
 - Stock exits/descorches reducen consumo y se mantienen transaccionales. Las actualizaciones solo de ficha no consumen recursos nuevos.
 
-Los límites se calculan a partir de `subscription_plan` (`FREE`/`PRO`). `subscription_status` se sigue informando; no se inventa una política adicional de downgrade automático por vencimiento. Las cotas técnicas de tipos de datos (por ejemplo INTEGER por registro) siguen vigentes aunque no exista cuota de producto.
+Los límites se calculan a partir de `subscription_plan` (`FREE`/`PRO`) y salen de `app/subscriptions/domain/catalog.py`, junto con el precio y el plan de análisis IA. `subscription_status` se sigue informando; no se inventa una política adicional de downgrade automático por vencimiento. Las cotas técnicas de tipos de datos (por ejemplo INTEGER por registro) siguen vigentes aunque no exista cuota de producto. Catálogo y solicitudes preparatorias de cambio de plan: [subscriptions.md](subscriptions.md).
 
 ## API y errores
 

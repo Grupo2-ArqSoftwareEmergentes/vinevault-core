@@ -10,6 +10,7 @@ from app.device.infrastructure.database.models.space_orm import SpaceORM
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
 from app.iam.models import User
 from app.assistant.domain.models import CellarSummary, SpaceSummary
+from app.subscriptions.domain.catalog import require_analysis_feature
 from .resources import AssistantChatRequest
 
 
@@ -24,9 +25,10 @@ async def authorize_assistant_request(
         await SpaceAuthorizationService(SpaceMemberRepository(db)).require(payload.space_id, user_id, SpacePermission.ANALYZE)
     except PermissionError as exc:
         raise HTTPException(403, "Insufficient permissions for this space") from exc
-    space = (await db.execute(select(SpaceORM.id, SpaceORM.name, SpaceORM.space_type).where(SpaceORM.id == payload.space_id))).one_or_none()
+    space = (await db.execute(select(SpaceORM.id, SpaceORM.name, SpaceORM.space_type, SpaceORM.subscription_plan).where(SpaceORM.id == payload.space_id))).one_or_none()
     if space is None:
         raise HTTPException(404, "Space not found")
+    require_analysis_feature(space.space_type.value, space.subscription_plan.value)
     cellar = None
     if payload.cellar_id is not None:
         row = (await db.execute(select(WineCellarORM.id, WineCellarORM.name).where(

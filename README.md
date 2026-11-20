@@ -170,6 +170,10 @@ Las pruebas crean y eliminan un esquema temporal único por caso; no usan las ta
 
 Para descargar el inventario completo del espacio o una cava en Excel/PDF: `GET /api/v1/inventory/export?space_id=<uuid>&cellar_id=<uuid>&format=xlsx|pdf`. Plantilla e importación legacy se conservan; detalles: [docs/inventory-exports.md](docs/inventory-exports.md).
 
+## Planes y suscripciones
+
+`GET /api/v1/subscriptions/catalog` y `GET /api/v1/subscriptions/overview` exponen precios, límites y cupos. Las solicitudes de mejora o espacio adicional son intenciones pendientes sin cobro; no conceden beneficios. Contrato: [docs/subscriptions.md](docs/subscriptions.md).
+
 ## Análisis de inventario con IA
 
 `POST /api/v1/assistant/chat` ofrece conversación y modo `SOMMELIER_ANALYSIS` con contexto real del espacio/cava, autorización por membresía y DeepSeek. Contrato, límites de contexto y tratamiento de notas: [docs/assistant.md](docs/assistant.md).
