@@ -143,6 +143,11 @@ class AssistantClientTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AssistantTenantTests(PostgresAPITestCase):
+    async def create_space(self, name="Casa", user_id=1):
+        space = await super().create_space(name, user_id)
+        await self.grant_pro(space, user_id)
+        return space
+
     async def asyncSetUp(self):
         await super().asyncSetUp()
         self.provider = SimpleNamespace(reply=AsyncMock(return_value="Respuesta de prueba."))
@@ -202,7 +207,7 @@ class AssistantTenantTests(PostgresAPITestCase):
         own = await self.create_space()
         item = await self.create_inventory(own["default_wine_cellar"])
         async with self.sessions() as session:
-            await session.execute(update(SpaceORM).where(SpaceORM.id == UUID(own["id"])).values(space_type=SpaceType.BUSINESS))
+            await session.execute(update(SpaceORM).where(SpaceORM.id == UUID(own["id"])).values(space_type=SpaceType.BUSINESS, subscription_plan="PRO"))
             await session.execute(update(WineInventoryItemORM).where(WineInventoryItemORM.id == UUID(item["id"])).values(purchase_price=10, sale_price=15, min_stock_alert=5))
             await session.commit()
         for mode in ("CHAT", "SOMMELIER_ANALYSIS"):
@@ -278,6 +283,9 @@ class AssistantTenantTests(PostgresAPITestCase):
 
     async def test_empty_scope_validation_and_controlled_provider_http_error(self):
         own = await self.create_space()
+        async with self.sessions() as session:
+            await session.execute(update(SpaceORM).where(SpaceORM.id == UUID(own["id"])).values(subscription_plan="PRO"))
+            await session.commit()
         response = await self.chat(own, mode="SOMMELIER_ANALYSIS")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["context_summary"]["items_considered"], 0)

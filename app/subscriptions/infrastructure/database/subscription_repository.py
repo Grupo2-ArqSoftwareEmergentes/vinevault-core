@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -6,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.iam.models import User
 from .models import ActiveSubscriptionORM, SubscriptionIntentORM
+from .entitlements import active_period_conditions
 
 
 class SubscriptionRepository:
@@ -43,8 +43,7 @@ class SubscriptionRepository:
     async def active_pro(self, space_id: UUID, *, lock: bool = False):
         query = select(ActiveSubscriptionORM).where(
             ActiveSubscriptionORM.space_id == space_id, ActiveSubscriptionORM.kind == "UPGRADE_PRO",
-            ActiveSubscriptionORM.status == "ACTIVE",
-            ActiveSubscriptionORM.current_period_end > datetime.now(timezone.utc),
+            *active_period_conditions(),
         )
         if lock:
             query = query.with_for_update().execution_options(populate_existing=True)
@@ -53,16 +52,14 @@ class SubscriptionRepository:
     async def active_for_user(self, user_id: int):
         rows = await self.session.scalars(select(ActiveSubscriptionORM).where(
             ActiveSubscriptionORM.requester_user_id == user_id,
-            ActiveSubscriptionORM.status == "ACTIVE",
-            ActiveSubscriptionORM.current_period_end > datetime.now(timezone.utc),
+            *active_period_conditions(),
         ).order_by(ActiveSubscriptionORM.created_at.desc(), ActiveSubscriptionORM.id))
         return list(rows)
 
     async def active_for_space(self, space_id: UUID):
         return await self.session.scalar(select(ActiveSubscriptionORM).where(
             ActiveSubscriptionORM.space_id == space_id, ActiveSubscriptionORM.kind == "UPGRADE_PRO",
-            ActiveSubscriptionORM.status == "ACTIVE",
-            ActiveSubscriptionORM.current_period_end > datetime.now(timezone.utc),
+            *active_period_conditions(),
         ))
 
     async def by_id(self, subscription_id: UUID, *, lock: bool = False):

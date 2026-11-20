@@ -17,7 +17,7 @@ from app.device.infrastructure.database.models.space_member_orm import SpaceMemb
 from app.device.infrastructure.database.models.space_orm import SpaceORM
 from app.iam.models import User
 from app.shared.quota_policy import account_space_limit, cellar_limit, inventory_limit
-from app.subscriptions.domain.catalog import EXTRA_SPACE_PRICES, PLANS, catalog, get_plan, require_analysis_feature
+from app.subscriptions.domain.catalog import EXTRA_SPACE_PRICES, PLANS, catalog, get_plan, require_feature
 from app.subscriptions.domain.errors import SubscriptionError
 from app.subscriptions.infrastructure.database.models import ActiveSubscriptionORM, SubscriptionIntentORM
 from app.subscriptions.interfaces.rest.resources.subscription_resources import CatalogResponse, ExtraSpaceRequest
@@ -37,7 +37,13 @@ class SubscriptionCatalogTests(unittest.TestCase):
         plans = {(plan["purpose"], plan["tier"]): plan for plan in data["plans"]}
         for purpose, amount in (("COLLECTOR", "29.99"), ("BUSINESS", "79.99")):
             self.assertEqual(plans[(purpose, "PRO")]["prices"], [{"currency": "PEN", "amount": amount, "interval": "MONTH"}])
-            self.assertTrue(plans[(purpose, "FREE")]["ai_analysis_enabled"])
+            self.assertFalse(plans[(purpose, "FREE")]["ai_analysis_enabled"])
+            self.assertFalse(plans[(purpose, "FREE")]["features"]["autocomplete"])
+            self.assertTrue(plans[(purpose, "FREE")]["features"]["excel_export"])
+            self.assertFalse(plans[(purpose, "FREE")]["features"]["stock_analysis"])
+            self.assertFalse(plans[(purpose, "FREE")]["features"]["sommelier_analysis"])
+            self.assertFalse(plans[(purpose, "FREE")]["features"]["pdf_report"])
+            self.assertTrue(all(plans[(purpose, "PRO")]["features"].values()))
         self.assertEqual(data["plan_scope"], "SPACE")
         self.assertEqual(data["billing_mode"], "PREPARATORY")
 
@@ -50,10 +56,11 @@ class SubscriptionCatalogTests(unittest.TestCase):
             self.assertEqual(maximum, getattr(plan.limits, resource))
         self.assertEqual(inventory_limit("FREE", "COLLECTOR"), ("bottles", 50))
         self.assertEqual(inventory_limit("FREE", "BUSINESS"), ("skus", 25))
-        disabled = replace(get_plan("COLLECTOR", "FREE"), ai_analysis_enabled=False)
+        disabled = replace(get_plan("COLLECTOR", "FREE"), features={feature: False for feature in get_plan("COLLECTOR", "FREE").features})
         with patch("app.subscriptions.domain.catalog.get_plan", return_value=disabled), self.assertRaises(SubscriptionError) as error:
-            require_analysis_feature("COLLECTOR", "FREE")
+            require_feature("COLLECTOR", "FREE", "stock_analysis")
         self.assertEqual(error.exception.status_code, 403)
+        self.assertEqual(error.exception.code, "PLAN_FEATURE_UNAVAILABLE")
 
     def test_quantity_and_client_granted_entitlements_are_rejected(self):
         for quantity in (0, -1, 101, True, "2", 1.5):
@@ -201,6 +208,7 @@ class SubscriptionAPITests(PostgresAPITestCase):
         async with self.sessions() as session:
             await session.execute(update(SpaceORM).where(SpaceORM.id == UUID(own["id"])).values(subscription_plan=SubscriptionPlan.PRO, subscription_status=SubscriptionStatus.EXPIRED))
             await session.commit()
+        await self.grant_pro(own)
         self.assertEqual((await self.upgrade(own)).status_code, 409)
         overview = await self.client.get(BASE + "/overview", params={"space_id": own["id"]}, headers=self.headers())
         self.assertEqual(overview.json()["space"]["subscription_status"], "EXPIRED")
@@ -222,7 +230,7 @@ class SubscriptionAPITests(PostgresAPITestCase):
 
     async def test_ai_feature_policy_is_checked_without_changing_current_free_access(self):
         own = await self.space()
-        disabled = replace(get_plan("COLLECTOR", "FREE"), ai_analysis_enabled=False)
+        disabled = replace(get_plan("COLLECTOR", "FREE"), features={feature: False for feature in get_plan("COLLECTOR", "FREE").features})
         with patch("app.subscriptions.domain.catalog.get_plan", return_value=disabled):
             assistant = await self.client.post("/api/v1/assistant/chat", json={"space_id": own["id"], "message": "Stock?"}, headers=self.headers())
             analyze = await self.client.post("/api/v1/ai/analyze-stock", json={"wine_cellar_id": own["default_wine_cellar"]["id"]}, headers=self.headers())
@@ -231,7 +239,7 @@ class SubscriptionAPITests(PostgresAPITestCase):
         self.assertEqual(analyze.status_code, 403, analyze.text)
         self.assertEqual(analyze.json()["detail"]["code"], "PLAN_FEATURE_UNAVAILABLE")
         disabled_plans = {**PLANS, ("COLLECTOR", "FREE"): disabled}
-        with patch("app.core.space_security.PLANS", disabled_plans):
+        with patch("app.subscriptions.domain.catalog.PLANS", disabled_plans):
             autocomplete = await self.client.post("/api/v1/inventory/ai-autocomplete", json={"wine_name": "Malbec"}, headers=self.headers())
         self.assertEqual(autocomplete.status_code, 403, autocomplete.text)
 

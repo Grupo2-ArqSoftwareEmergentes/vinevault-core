@@ -30,6 +30,7 @@ class PlanResponse(BaseModel):
     scope: Literal["SPACE"]
     prices: list[PriceResponse]
     limits: PlanLimitsResponse
+    features: dict[str, bool]
     ai_analysis_enabled: bool
 
 

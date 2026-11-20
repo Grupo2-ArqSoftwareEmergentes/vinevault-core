@@ -44,11 +44,17 @@ class ResourceQuotaTests(PostgresAPITestCase):
         )
 
     async def extra_cellars(self, space, extra=1, plan="FREE"):
+        from app.subscriptions.infrastructure.database.models import ActiveSubscriptionORM
+        from sqlalchemy import update
         async with self.sessions() as session:
             stored = await session.get(SpaceORM, UUID(space["id"]))
             stored.extra_cellars_allowance = extra
             stored.subscription_plan = plan
+            if plan == "FREE":
+                await session.execute(update(ActiveSubscriptionORM).where(ActiveSubscriptionORM.space_id == stored.id).values(status="EXPIRED"))
             await session.commit()
+        if plan == "PRO":
+            await self.grant_pro(space)
 
     def assert_quota(self, response, code):
         self.assertEqual(response.status_code, 403, response.text)

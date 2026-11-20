@@ -11,9 +11,8 @@ from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineC
 from app.wine_cellar.infrastructure.database.models.wine_inventory_item_orm import WineInventoryItemORM
 from app.shared.quota_policy import InventoryUsage, QuotaExceededError, QuotaResourceNotFoundError, can_create_space, cellar_limit
 from app.subscriptions.domain.catalog import account_space_limit
-from app.subscriptions.infrastructure.database.entitlements import effective_tier, effective_tiers
+from app.subscriptions.infrastructure.database.entitlements import active_period_conditions, effective_tier, effective_tiers, effective_tier_expression
 from app.subscriptions.infrastructure.database.models import ActiveSubscriptionORM
-from datetime import datetime, timezone
 
 
 class ResourceQuotaRepository:
@@ -31,14 +30,13 @@ class ResourceQuotaRepository:
         purchased = await self.session.scalar(select(func.coalesce(func.sum(ActiveSubscriptionORM.quantity), 0)).where(
             ActiveSubscriptionORM.requester_user_id == user_id,
             ActiveSubscriptionORM.kind == "EXTRA_SPACE",
-            ActiveSubscriptionORM.status == "ACTIVE",
-            ActiveSubscriptionORM.current_period_end > datetime.now(timezone.utc),
+            *active_period_conditions(),
         ))
         extra = int(user.extra_spaces_allowance) + int(purchased or 0)
-        rows = await self.session.execute(select(SpaceORM.space_type, SpaceORM.subscription_plan).join(
+        rows = await self.session.execute(select(SpaceORM.space_type, effective_tier_expression(SpaceORM.id)).join(
             SpaceMemberORM, SpaceMemberORM.space_id == SpaceORM.id,
         ).where(SpaceMemberORM.user_id == user_id, SpaceMemberORM.role == SpaceRole.OWNER))
-        return extra, [(purpose.value, plan.value) for purpose, plan in rows]
+        return extra, [(purpose.value, tier) for purpose, tier in rows]
 
     async def effective_tier(self, space: SpaceORM) -> str:
         return await effective_tier(self.session, space)

@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.wine_cellar.applications.inventory_excel_service import XLSX_MIME_TYPE
 from app.wine_cellar.applications.inventory_export_service import InventoryExportNotFoundError, InventoryExportService, InventoryExportTooLargeError
 from app.wine_cellar.infrastructure.reporting.inventory_report_renderer import filename, render_pdf, render_xlsx
+from app.subscriptions.domain.catalog import require_feature
 
 
 logger = logging.getLogger(__name__)
@@ -27,8 +28,11 @@ async def export_inventory(
     format: Literal["xlsx", "pdf"] = "xlsx",
     db: AsyncSession = Depends(get_db),
 ):
+    service = InventoryExportService(db)
     try:
-        data = await InventoryExportService(db).load(space_id, cellar_id)
+        scope = await service.scope(space_id, cellar_id)
+        require_feature(scope[0].space_type.value, scope[1], "pdf_report" if format == "pdf" else "excel_export")
+        data = await service.load(space_id, cellar_id, scope=scope)
     except InventoryExportNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     except InventoryExportTooLargeError as exc:

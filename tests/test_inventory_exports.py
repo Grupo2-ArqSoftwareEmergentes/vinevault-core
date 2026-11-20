@@ -145,6 +145,7 @@ class InventoryExportAPITests(PostgresAPITestCase):
         await self.create_named_item(second, "OWN_SECOND")
         await self.create_named_item(other["default_wine_cellar"], "OTHER_SPACE_ONLY")
         await self.create_named_item(foreign["default_wine_cellar"], "FOREIGN_SECRET", user_id=2)
+        await self.grant_pro(own)
         for format in ("xlsx", "pdf"):
             for scope in (None, own["default_wine_cellar"]):
                 response = await self.download(own, cellar=scope, format=format)
@@ -203,6 +204,7 @@ class InventoryExportAPITests(PostgresAPITestCase):
         await self.create_named_item(own["default_wine_cellar"], "TWO")
         with patch("app.wine_cellar.applications.inventory_export_service.MAX_EXPORT_ITEMS", 1):
             self.assertEqual((await self.download(own)).status_code, 413)
+        await self.grant_pro(own)
         with patch("app.wine_cellar.interfaces.rest.controllers.inventory_export_controller.render_pdf", side_effect=ValueError("SECRET_TRACE")):
             response = await self.download(own, format="pdf")
         self.assertEqual(response.status_code, 500)

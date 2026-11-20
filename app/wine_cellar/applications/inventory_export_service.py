@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.device.infrastructure.database.models.space_orm import SpaceORM
+from app.subscriptions.infrastructure.database.entitlements import effective_tier
 from app.wine_cellar.domain.models.inventory_export import InventoryExportData
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
 from app.wine_cellar.infrastructure.database.models.wine_inventory_item_orm import WineInventoryItemORM
@@ -27,10 +28,21 @@ class InventoryExportService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def load(self, space_id: UUID, cellar_id: UUID | None) -> InventoryExportData:
-        space = (await self.session.execute(select(SpaceORM.id, SpaceORM.name, SpaceORM.space_type).where(SpaceORM.id == space_id))).one_or_none()
+    async def scope(self, space_id: UUID, cellar_id: UUID | None) -> tuple[SpaceORM, str]:
+        """Validate space/cellar scope before expensive rendering or plan-feature checks."""
+        space = await self.session.scalar(select(SpaceORM).where(SpaceORM.id == space_id))
         if space is None:
             raise InventoryExportNotFoundError("Space not found")
+        if cellar_id is not None:
+            cellar = await self.session.scalar(select(WineCellarORM.id).where(
+                WineCellarORM.id == cellar_id, WineCellarORM.space_id == space_id,
+            ))
+            if cellar is None:
+                raise InventoryExportNotFoundError("Wine cellar not found in this space")
+        return space, await effective_tier(self.session, space)
+
+    async def load(self, space_id: UUID, cellar_id: UUID | None, *, scope: tuple[SpaceORM, str] | None = None) -> InventoryExportData:
+        space, _ = scope or await self.scope(space_id, cellar_id)
         cellar_name = None
         if cellar_id is not None:
             cellar = (await self.session.execute(select(WineCellarORM.name).where(

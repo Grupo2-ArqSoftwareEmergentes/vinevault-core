@@ -9,7 +9,7 @@
 ```
 
 - `wine_name`: texto recortado, obligatorio, 1–255 caracteres. Admite además `registration_date` opcional (`YYYY-MM-DD`, desde 1900-01-01 hasta hoy UTC); si falta o es `null`, usa la fecha UTC del servidor al consultar. No acepta otros campos.
-- Requiere cuenta activa y membresía en al menos un espacio existente con permiso `ANALYZE` (`OWNER`, `SOMMELIER`, `INVENTORY_CLERK`). Sin usuario válido: `401`; sin esa membresía: `403`; payload inválido: `422`. No se usa el owner legacy ni el estado superuser como autorización. No selecciona ni modifica un espacio.
+- Requiere cuenta activa y membresía en un espacio **PRO vigente** con permiso `ANALYZE` (`OWNER`, `SOMMELIER`, `INVENTORY_CLERK`). Puede enviarse `?space_id=<uuid>` para validar exactamente el espacio activo; debe usarse al invocar desde un formulario de espacio. Sin ese parámetro se conserva el cliente legacy: necesita al menos una membresía ANALYZE en un PRO vigente. Con membresía válida pero sin la capacidad del plan: `403 PLAN_FEATURE_UNAVAILABLE`, sin llamar al proveedor. Sin usuario válido: `401`; sin membresía/rol: `403`; payload inválido: `422`. No se usa el owner legacy ni el estado superuser como autorización. No modifica un espacio.
 - Devuelve `200 application/json` con las once claves de formulario siguientes; los datos desconocidos son `null`. La búsqueda agrega metadatos `sources`, `registration_date`, `estimated_fields`, `estimation_basis` y, solo con Gemini cuando Google lo entrega, `search_suggestions_html`, separados de los campos del vino. Si falta la clave API, falla el proveedor/búsqueda, no hay evidencia web utilizable, se agota su cuota, vence el timeout o devuelve JSON inválido, responde `200 {}`. Un nombre ambiguo debe producir sugerencias nulas, no datos inventados. La identificación es probabilística: el usuario debe confirmar los datos.
 
 ```json
@@ -77,6 +77,8 @@ Pruebas del autocompletado (Google siempre simulado; los checks de membresía SQ
 ```json
 {"wine_cellar_id":"<uuid>"}
 ```
+
+Todas las rutas `/api/v1/ai/*` requieren `stock_analysis` del plan PRO efectivo del espacio de la cava, además del rol ANALYZE. FREE devuelve `403 PLAN_FEATURE_UNAVAILABLE` antes de leer inventario o abrir SSE. La comprobación precede al cortocircuito por inventario vacío. La suscripción cancelada sigue válida hasta fin de ciclo; no se concede acceso por un flag PRO materializado sin ciclo vigente.
 
 Sin opciones nuevas conserva `application/json` y todos los campos anteriores: `id`, `analysis_type`, `content`, `wine_cellar_id`, `tokens_used`, `created_at`. Agrega `status` (`completed` o `empty`) y `message` opcional. El frontend Angular existente puede seguir mostrando `content` sin cambios.
 

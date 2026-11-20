@@ -53,7 +53,9 @@ class SubscriptionActivationTests(PostgresAPITestCase):
     async def expire(self, subscription_id):
         async with self.sessions() as session:
             row = await session.get(ActiveSubscriptionORM, UUID(subscription_id))
-            row.current_period_end = datetime.now(timezone.utc) - timedelta(seconds=1)
+            now = datetime.now(timezone.utc)
+            row.started_at = now - timedelta(days=31)
+            row.current_period_end = now - timedelta(seconds=1)
             await session.commit()
 
     async def test_activation_grants_pro_immediately_with_monthly_cycle_and_mrr(self):

@@ -74,6 +74,27 @@ class PostgresAPITestCase(unittest.IsolatedAsyncioTestCase):
     def headers(self, user_id=1):
         return {"Authorization": f"Bearer {create_access_token({'sub': str(user_id)})}"}
 
+    async def grant_pro(self, space, user_id=1):
+        """Explicit paid-cycle fixture; raw subscription_plan alone is not an entitlement."""
+        from datetime import datetime, timedelta, timezone
+        from app.subscriptions.domain.catalog import get_plan
+        from app.subscriptions.infrastructure.database.models import ActiveSubscriptionORM
+
+        async with self.sessions() as session:
+            stored = await session.get(SpaceORM, UUID(space["id"]))
+            amount = get_plan(stored.space_type.value, "PRO").prices[0].amount
+            now = datetime.now(timezone.utc)
+            subscription = ActiveSubscriptionORM(
+                requester_user_id=user_id, space_id=stored.id, kind="UPGRADE_PRO", status="ACTIVE",
+                quantity=1, currency="PEN", unit_amount=amount, total_amount=amount,
+                started_at=now, current_period_end=now + timedelta(days=30), catalog_version="test",
+                cancel_at_period_end=False,
+            )
+            session.add(subscription)
+            stored.subscription_plan = "PRO"
+            await session.commit()
+            return subscription.id
+
     async def create_space(self, name="Casa", user_id=1):
         response = await self.client.post(
             "/api/v1/spaces", json={"name": name}, headers=self.headers(user_id)
@@ -416,6 +437,7 @@ class PersonalContextTests(PostgresAPITestCase):
         from app.inventory_intelligence.applications.prompt_builder import PromptBuilder
 
         space = await self.create_space()
+        await self.grant_pro(space)
         cellar_id = space["default_wine_cellar"]["id"]
         with patch.object(GeminiClientImpl, "_create_client") as google, patch.object(PromptBuilder, "build_prompt") as prompt:
             for route in ("analyze-stock", "recommend-purchases", "monthly-report", "chat"):

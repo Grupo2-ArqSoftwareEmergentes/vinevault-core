@@ -23,6 +23,7 @@ from app.core.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.wine_cellar.applications import InventoryExcelError, WineInventoryExcelService
 from app.wine_cellar.applications.inventory_excel_service import XLSX_MIME_TYPE
+from app.wine_cellar.applications.inventory_export_service import InventoryExportTooLargeError
 from app.wine_cellar.domain.models import WineCellar
 from ..resources import (
     CreateWineCellarRequest,
@@ -219,7 +220,10 @@ async def export_wine_inventory(
 ):
     wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
 
-    workbook_bytes = await WineInventoryExcelService().export_inventory(db, wine_cellar.id)
+    try:
+        workbook_bytes = await WineInventoryExcelService().export_inventory(db, wine_cellar.id)
+    except InventoryExportTooLargeError as exc:
+        raise HTTPException(413, str(exc)) from exc
 
     filename = f"wine-cellar-{wine_cellar.id}-inventory.xlsx"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}

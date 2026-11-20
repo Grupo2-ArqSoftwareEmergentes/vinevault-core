@@ -11,8 +11,10 @@ Authorization: Bearer <access-token>
 - `space_id` UUID **obligatorio**; `cellar_id` UUID opcional. Sin cava, incluye todos los ítems de todas las cavas del espacio; con cava, solo sus ítems. No depende de una selección global del servidor.
 - `format=xlsx|pdf`; por defecto `xlsx`. Un formato no soportado, UUID inválido o espacio omitido devuelve `422`.
 - Exige usuario activo y membresía con permiso READ del espacio indicado (todos los roles existentes, incluido WAITER). No hay bypass por owner legacy ni superuser. Token inválido/ausente/refresh o usuario inactivo: `401`; espacio ajeno: `403`; espacio inexistente o cava ausente/ajena al espacio: `404`.
+- PDF requiere `pdf_report` del plan **PRO efectivo vigente**; FREE recibe `403 PLAN_FEATURE_UNAVAILABLE` antes de cargar el detalle o generar el documento. La cancelación mantiene PDF hasta fin de ciclo, nunca después. Excel (incluido legacy) y plantilla/importación continúan disponibles en FREE, con cuotas de inventario y límite técnico de descarga; CSV no está implementado (`422`).
 - Valida siempre la pareja espacio/cava, incluso si el usuario tiene acceso a ambos espacios. La consulta SQL filtra por espacio y cava antes de generar el documento. No hay llamadas a IA ni escrituras en inventario.
 - Límite síncrono de 10000 registros; si se supera, responde `413` sin generar un informe parcial. Filtrar por cava si es posible. No es una paginación ni un truncado silencioso del inventario.
+- El export Excel legacy también aplica ese límite con proyección SQL de campos básicos; no permite eludir el límite técnico por una ruta alternativa.
 - Incluye registros con cantidad cero. El informe refleja la lectura de los ítems al consultar, no bloquea movimientos concurrentes ni garantiza que los valores sigan iguales tras la descarga.
 
 ## Respuesta y frontend

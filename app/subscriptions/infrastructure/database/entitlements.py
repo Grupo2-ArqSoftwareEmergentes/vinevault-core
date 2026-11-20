@@ -7,35 +7,41 @@ cycle cannot keep granting Pro benefits.
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.subscriptions.infrastructure.database.models import ActiveSubscriptionORM
+
+
+def active_period_conditions():
+    now = datetime.now(timezone.utc)
+    return (
+        ActiveSubscriptionORM.status == "ACTIVE",
+        ActiveSubscriptionORM.started_at <= now,
+        ActiveSubscriptionORM.current_period_end > now,
+    )
+
+
+def active_pro_spaces():
+    """Canonical SQL entitlement predicate, shared by guards and batch quota reads."""
+    return select(ActiveSubscriptionORM.space_id).where(
+        ActiveSubscriptionORM.kind == "UPGRADE_PRO",
+        *active_period_conditions(),
+    )
+
+
+def effective_tier_expression(space_id):
+    return case((space_id.in_(active_pro_spaces()), "PRO"), else_="FREE")
 
 
 async def effective_tiers(session: AsyncSession, spaces) -> dict[UUID, str]:
     spaces = list(spaces)
     if not spaces:
         return {}
-    rows = (await session.execute(select(
-        ActiveSubscriptionORM.space_id, ActiveSubscriptionORM.status, ActiveSubscriptionORM.current_period_end,
-    ).where(
-        ActiveSubscriptionORM.kind == "UPGRADE_PRO",
+    active = set(await session.scalars(active_pro_spaces().where(
         ActiveSubscriptionORM.space_id.in_([space.id for space in spaces]),
-    ).order_by(ActiveSubscriptionORM.space_id, ActiveSubscriptionORM.current_period_end.desc()))).all()
-    latest = {}
-    for space_id, status, period_end in rows:
-        latest.setdefault(space_id, (status, period_end))
-    now = datetime.now(timezone.utc)
-    result = {}
-    for space in spaces:
-        managed = latest.get(space.id)
-        if managed is None:
-            result[space.id] = space.subscription_plan.value
-        else:
-            status, period_end = managed
-            result[space.id] = "PRO" if status == "ACTIVE" and period_end > now else "FREE"
-    return result
+    )))
+    return {space.id: "PRO" if space.id in active else "FREE" for space in spaces}
 
 
 async def effective_tier(session: AsyncSession, space) -> str:

@@ -14,26 +14,33 @@ from app.device.infrastructure.database.models.space_orm import SpaceORM
 from app.device.infrastructure.database.models.space_member_orm import SpaceMemberORM
 from app.device.infrastructure.database.models.device_assignment_orm import DeviceAssignmentORM
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
-from app.subscriptions.domain.catalog import PLANS, require_analysis_feature
-from app.subscriptions.infrastructure.database.entitlements import effective_tier
+from app.subscriptions.domain.catalog import plans_with_feature, require_feature
+from app.subscriptions.domain.errors import SubscriptionError
+from app.subscriptions.infrastructure.database.entitlements import effective_tier, effective_tier_expression
 
 
 async def authorize_inventory_autocomplete(
     user_id: int | None = Depends(get_current_user_id_optional),
     db: AsyncSession = Depends(get_db),
+    space_id: UUID | None = None,
 ) -> None:
     """Name-only suggestions require an active account with an existing ANALYZE membership."""
     if user_id is None or await db.scalar(select(User.id).where(User.id == user_id, User.is_active.is_(True))) is None:
         raise HTTPException(status_code=401, detail="Invalid or inactive user", headers={"WWW-Authenticate": "Bearer"})
-    membership = await db.scalar(
+    allowed_memberships = (
         select(SpaceMemberORM.space_id)
         .join(SpaceORM, SpaceORM.id == SpaceMemberORM.space_id)
         .where(SpaceMemberORM.user_id == user_id, SpaceMemberORM.role.in_(ALLOWED_ROLES[SpacePermission.ANALYZE]))
-        .where(or_(False, *(and_(SpaceORM.space_type == plan.purpose, SpaceORM.subscription_plan == plan.tier)
-                            for plan in PLANS.values() if plan.ai_analysis_enabled)))
-        .limit(1)
     )
+    if space_id is not None:
+        allowed_memberships = allowed_memberships.where(SpaceORM.id == space_id)
+    membership = await db.scalar(allowed_memberships.where(or_(False, *(
+        and_(SpaceORM.space_type == purpose, effective_tier_expression(SpaceORM.id) == tier)
+        for purpose, tier in plans_with_feature("autocomplete")
+    ))).limit(1))
     if membership is None:
+        if await db.scalar(allowed_memberships.limit(1)) is not None:
+            raise SubscriptionError("PLAN_FEATURE_UNAVAILABLE", "El autocompletado con IA requiere plan PRO.", 403)
         raise HTTPException(status_code=403, detail="An ANALYZE membership in a valid space is required")
 
 
@@ -106,6 +113,6 @@ async def authorize_space_request(
         space = await db.get(SpaceORM, space_id)
         if space is None:
             raise HTTPException(404, "Space not found")
-        require_analysis_feature(space.space_type.value, await effective_tier(db, space))
+        require_feature(space.space_type.value, await effective_tier(db, space), "stock_analysis")
     request.state.space_role = role
     request.state.space_id = space_id

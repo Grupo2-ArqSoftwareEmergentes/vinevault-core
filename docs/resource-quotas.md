@@ -4,6 +4,8 @@
 
 Las cuotas se validan en el backend, además de los permisos de membresía/rol. No sustituyen los controles multi-tenant.
 
+El resolver de suscripciones exige un ciclo PRO activo e iniciado, aún no vencido; no confía en `spaces.subscription_plan` crudo. La matriz `plans[].features` centraliza IA/reportes: Free conserva Excel/plantilla/importación, pero asistente, autocompletado, análisis IA y PDF requieren Pro vigente. No se aplica una segunda bolsa de cupos por cava. Detalle: [subscriptions.md](subscriptions.md).
+
 | Recurso | FREE | PRO | Cupo comprado |
 |---|---|---|---|
 | Espacios propios por cuenta | 2 de cortesía: un COLLECTOR y un BUSINESS | Los espacios PRO también cuentan para el máximo global | `User.extra_spaces_allowance` aumenta el total permitido |

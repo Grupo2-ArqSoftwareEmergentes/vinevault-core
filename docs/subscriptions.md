@@ -8,8 +8,8 @@
 
 | Propósito | Nivel | Tarifa mensual oficial | Cavas base | Botellas | SKUs | Análisis IA |
 |---|---|---|---|---|---|---|
-| `COLLECTOR` | `FREE` | USD `0.00` / PEN `0.00` | 1 | 50 | Sin límite de producto (`null`) | Habilitado |
-| `BUSINESS` | `FREE` | USD `0.00` / PEN `0.00` | 1 | Sin límite de producto (`null`) | 25 | Habilitado |
+| `COLLECTOR` | `FREE` | USD `0.00` / PEN `0.00` | 1 | 50 | Sin límite de producto (`null`) | Requiere PRO |
+| `BUSINESS` | `FREE` | USD `0.00` / PEN `0.00` | 1 | Sin límite de producto (`null`) | 25 | Requiere PRO |
 | `COLLECTOR` | `PRO` | PEN `29.99` | 3 | Sin límite de producto (`null`) | Sin límite de producto (`null`) | Habilitado |
 | `BUSINESS` | `PRO` | PEN `79.99` | 3 | Sin límite de producto (`null`) | Sin límite de producto (`null`) | Habilitado |
 
@@ -23,12 +23,31 @@ Las tarifas son montos explícitos por moneda, no conversiones. Los upgrades `PR
 
 Cada cuenta conserva 2 espacios de cortesía (`COLLECTOR: 1`, `BUSINESS: 1`) más los cupos adicionales vigentes. Las cavas heredan el plan y cuotas del espacio: **no existe un plan Pro independiente por cava**.
 
+### Capacidades por plan
+
+`plans[].features` es la matriz oficial, inmutable en el servidor; `overview.space.plan.features` refleja el plan efectivo del espacio.
+
+| Capacidad | FREE | PRO vigente |
+|---|---|---|
+| `autocomplete` | No | Sí |
+| `assistant_chat` | No | Sí |
+| `stock_analysis` (incluye rutas IA legacy) | No | Sí |
+| `sommelier_analysis` | No | Sí |
+| `excel_export` (normal y legacy) | Sí, con límite técnico de 10000 registros | Sí, mismo límite técnico |
+| `pdf_report` | No | Sí |
+
+Los permisos por rol siguen siendo necesarios: PRO no concede ANALYZE a WAITER ni permite acceder a otro espacio. Una función bloqueada devuelve `403` con `detail.code: PLAN_FEATURE_UNAVAILABLE` y mensaje que requiere PRO, antes de llamar a IA o generar el reporte. Las cuotas conservan sus códigos `SPACE_LIMIT_REACHED`, `CELLAR_LIMIT_REACHED`, `ITEM_LIMIT_REACHED`.
+
+No hay rutas de invitación/alta/cambio de roles ni de alertas automáticas de ventana de consumo en la versión actual. No se inventan endpoints ni se anuncian estas capacidades como implementadas. Los campos `min_stock_alert`/`consumption_window` siguen siendo datos opcionales de ficha, no un motor de notificaciones. Las alertas operativas de sensores y los roles/membresías ya existentes conservan sus controles actuales.
+
 ## Modelo de suscripción activa
 
 - Cada compra confirmada crea una fila en `active_subscriptions` con `status: ACTIVE`, `started_at`, `current_period_end = started_at + 30 días`, `cancel_at_period_end`, importe unitario y total mensual en `PEN`.
 - `UPGRADE_PRO` pertenece al espacio; solo puede existir una suscripción `ACTIVE` por espacio (índice único parcial). Se materializa `spaces.subscription_plan = PRO` para compatibilidad.
 - `EXTRA_SPACE` pertenece a la cuenta (`requester_user_id`). Los cupos efectivos = `users.extra_spaces_allowance` manual/legacy + suma de `quantity` de add-ons `ACTIVE` no vencidos. No se escriben cupos desde el cliente ni se muta la columna manual.
 - Las cuotas y los permisos IA usan los **derechos efectivos**: una suscripción vencida deja de conceder Pro/espacios aunque la fila histórica o el campo materializado sigan existiendo. El cierre de ciclo se reconcilia de forma perezosa en `overview` y en los flujos de cuota.
+- Resolver único: `app/subscriptions/infrastructure/database/entitlements.py`. PRO solo existe con una suscripción `UPGRADE_PRO`, `status=ACTIVE`, `started_at <= ahora UTC < current_period_end`. Un PRO materializado/manual sin suscripción, una suscripción futura, pendiente o vencida resuelve a FREE. No se crean ciclos pagados ficticios para rescatar valores legacy; los datos existentes no se borran. Revisar esos espacios y activar/registrar su ciclo por un flujo autorizado.
+- Se aplica a las cuotas, listados/lecturas/renombres de espacios, contexto, overview, todas las rutas IA y PDF. Las lecturas batch no agregan una consulta por espacio. Al volver a FREE se mantienen cavas/inventario existentes: se permite corregir/reducir stock y editar ficha, pero no crecer por encima del cupo ni usar funciones PRO.
 - La cancelación **no revoca** el beneficio durante el ciclo pagado: mantiene `PRO`/cupos hasta `current_period_end`, marca `cancel_at_period_end: true` y excluye el concepto de `next_cycle_monthly_total`.
 
 ## Endpoints
@@ -128,3 +147,5 @@ $env:TEST_DATABASE_URL='postgresql+asyncpg://postgres:postgres@localhost:5432/vi
 ```
 
 `test_subscription_activation.py` cubre activación Pro inmediata (precios 29.99/79.99), ciclo de 30 días, MRR (109.98/149.98), cupos extra (20.00 por cupo), permisos, idempotencia, moneda, cancelación con acceso hasta fin de ciclo, expiración y modo pendiente. `test_subscriptions.py` conserva catálogo, aislamiento y compatibilidad con el flujo preparatorio. PostgreSQL temporal, sin pasarela ni cobros reales.
+
+La auditoría de planes no añade otra migración. `test_plan_enforcement.py` prueba ambos propósitos, funciones Free bloqueadas antes del proveedor, activación inmediata, cancelación con vigencia, vencimiento sin consultar primero overview, PRO manual/futuro inválido, aliases de creación, importación vencida y export legacy acotado.

@@ -12,9 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.wine_cellar.infrastructure.database.models import WineInventoryItemORM
-from app.wine_cellar.infrastructure.database.repositories import WineInventoryRepository
 from app.shared.infrastructure.database.resource_quota_repository import ResourceQuotaRepository
 from app.shared.quota_policy import validate_inventory_growth
+from app.device.infrastructure.database.models.space_orm import SpaceORM
+from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
+from app.subscriptions.domain.catalog import require_feature
+from app.subscriptions.infrastructure.database.entitlements import effective_tier
 
 
 XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -56,8 +59,20 @@ class WineInventoryExcelService:
     )
 
     async def export_inventory(self, session: AsyncSession, wine_cellar_id: UUID) -> bytes:
-        repository = WineInventoryRepository(session)
-        items = await repository.find_all_by_wine_cellar_id(wine_cellar_id)
+        space = await session.scalar(select(SpaceORM).join(WineCellarORM, WineCellarORM.space_id == SpaceORM.id).where(WineCellarORM.id == wine_cellar_id))
+        if space is None:
+            raise InventoryExcelError("Wine cellar not found")
+        require_feature(space.space_type.value, await effective_tier(session, space), "excel_export")
+        from app.wine_cellar.applications.inventory_export_service import MAX_EXPORT_ITEMS, InventoryExportTooLargeError
+
+        items = (await session.execute(select(
+            WineInventoryItemORM.id, WineInventoryItemORM.wine_name, WineInventoryItemORM.wine_type,
+            WineInventoryItemORM.age_years, WineInventoryItemORM.quantity,
+        ).where(WineInventoryItemORM.wine_cellar_id == wine_cellar_id)
+            .order_by(WineInventoryItemORM.created_at.desc(), WineInventoryItemORM.id)
+            .limit(MAX_EXPORT_ITEMS + 1))).all()
+        if len(items) > MAX_EXPORT_ITEMS:
+            raise InventoryExportTooLargeError(f"Export exceeds {MAX_EXPORT_ITEMS} items; select a smaller cellar")
         rows: list[list[Any]] = [list(self.HEADERS)]
         for item in items:
             rows.append(

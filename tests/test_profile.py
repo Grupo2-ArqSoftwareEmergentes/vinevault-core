@@ -1,5 +1,7 @@
 import unittest
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from pydantic import ValidationError
 from sqlalchemy import inspect, text, update
 from sqlalchemy.exc import IntegrityError
@@ -273,7 +275,8 @@ class ProfileAPITests(PostgresAPITestCase):
             await connection.run_sync(upgrade_database)
             columns = {col["name"] for col in await connection.run_sync(lambda sync: inspect(sync).get_columns("users"))}
             self.assertIn("preferred_language", columns)
-            self.assertEqual(await connection.scalar(text("SELECT version_num FROM alembic_version")), "20261120_user_preferred_language")
+            head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+            self.assertEqual(await connection.scalar(text("SELECT version_num FROM alembic_version")), head)
 
         async with self.sessions() as session:
             user = await session.get(User, 1)

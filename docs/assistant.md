@@ -23,6 +23,7 @@
 - `history`: omitido, `null` o lista de hasta 10 mensajes, cada uno con `role: user|assistant` y `content` de 1–2000 caracteres. Roles `system`/`tool`, campos extra e historiales mayores se rechazan con `422`, no se truncan silenciosamente.
 - Requiere usuario activo y membresía del **espacio solicitado**, con permiso `ANALYZE`: OWNER, SOMMELIER o INVENTORY_CLERK, en ambos modos. WAITER, superuser sin membresía y owner legacy sin membresía no tienen acceso. Sin sesión válida: `401`; sin permiso: `403`, incluso si el espacio no existe (no se revela su existencia). Una cava ajena a ese espacio o ausente devuelve `404` después de autorizar el espacio, aunque el usuario también pertenezca al otro espacio.
 - La dependencia `app/assistant/interfaces/rest/security.py` protege el cuerpo tipado antes de consultar inventario o llamar a DeepSeek; no utiliza el guard genérico de rutas con IDs indirectos.
+- Ambos modos requieren **PRO vigente** (`assistant_chat`/`sommelier_analysis` en el catálogo). FREE recibe `403 PLAN_FEATURE_UNAVAILABLE`, incluso con inventario vacío; no consume cuota de DeepSeek. Una cancelación conserva acceso hasta fin de ciclo. Un valor PRO crudo en la tabla no sustituye una suscripción activa.
 
 ## Respuesta
 

@@ -394,6 +394,7 @@ class WineAutocompleteWebTests(unittest.IsolatedAsyncioTestCase):
 class WineAutocompleteMembershipTests(PostgresAPITestCase):
     async def test_membership_roles_and_active_user_checked_before_provider(self):
         space = await self.create_space()
+        await self.grant_pro(space)
         provider = SimpleNamespace(generate=AsyncMock(return_value='{"winery":"Bodega"}'))
         previous = app.dependency_overrides.copy()
         app.dependency_overrides[get_wine_autocomplete_service] = lambda: WineAutocompleteService(provider)

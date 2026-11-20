@@ -79,8 +79,8 @@ class SubscriptionService:
     @staticmethod
     def _billing(subscriptions: list[ActiveSubscriptionORM], space_subscription: ActiveSubscriptionORM | None):
         now = datetime.now(timezone.utc)
-        visible = {row.id: row for row in subscriptions if row.status == "ACTIVE" and row.current_period_end > now}
-        if space_subscription is not None and space_subscription.status == "ACTIVE" and space_subscription.current_period_end > now:
+        visible = {row.id: row for row in subscriptions if row.status == "ACTIVE" and row.started_at <= now < row.current_period_end}
+        if space_subscription is not None and space_subscription.status == "ACTIVE" and space_subscription.started_at <= now < space_subscription.current_period_end:
             visible.setdefault(space_subscription.id, space_subscription)
         rows = sorted(visible.values(), key=lambda row: (row.created_at, str(row.id)), reverse=True)
         current = sum((row.total_amount for row in rows), Decimal("0.00"))
@@ -122,7 +122,7 @@ class SubscriptionService:
                 "subscription_plan": tier, "subscription_status": space.subscription_status.value,
                 "role": role.value, "plan": asdict(plan), "extra_cellars_allowance": space.extra_cellars_allowance,
                 "can_manage_subscription": role.value == "OWNER",
-                "can_analyze": plan.ai_analysis_enabled and role in ALLOWED_ROLES[SpacePermission.ANALYZE],
+                "can_analyze": plan.features.get("stock_analysis", False) and role in ALLOWED_ROLES[SpacePermission.ANALYZE],
                 "active_subscription": space_subscription,
                 "quotas": {
                     "cellars": quota(cellars, cellar_limit(tier, space.extra_cellars_allowance, space.space_type.value)),
@@ -197,7 +197,7 @@ class SubscriptionService:
 
             if not activate:
                 if space is not None:
-                    if space.subscription_plan.value != "FREE" and await self.repository.active_pro(space.id) is None:
+                    if await effective_tier(self.session, space) != "FREE":
                         raise SubscriptionError("ALREADY_PRO", "This space is already PRO", 409)
                     if await self.repository.pending_upgrade(space.id, exclude_id=intent.id) is not None:
                         raise SubscriptionError("UPGRADE_PENDING", "This space already has a pending upgrade request", 409)
