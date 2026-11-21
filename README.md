@@ -101,6 +101,27 @@ El backend carga `.env` y arranca `app.main:app` en el puerto **8000**, con reca
 
 > **Atención:** usa una base local de pruebas. Al iniciar, el backend crea las tablas faltantes y ejecuta seeds de dispositivos. También elimina registros de edges cuyos nombres no estén en `EDGE_DEVICE_SEEDS` de `app/main.py`, restablece las claves de los dos edges predefinidos y los reactiva. Esto sucede incluso en modo producción. La creación de tablas no migra tablas existentes si cambia el esquema.
 
+### Inventario de fábrica al arrancar
+
+El arranque completa los 50 dispositivos `SN-0001` a `SN-0050` del manifiesto `app/device/infrastructure/seeds/factory_devices.txt`. En cada inicio normaliza `name` y `factory_name` a `Sensor 0001`…`Sensor 0050` y `device_type` a `air-quality-v1`. Esto también reemplaza nombres personalizados dentro de ese rango reservado al seed.
+
+- Solo inserta los seriales faltantes. Conserva IDs, fechas de creación, hardware IDs válidos, API keys no vacías y asignaciones existentes; genera claves aleatorias seguras para los nuevos o con clave vacía. No imprime claves en logs.
+- Los nuevos usan `VINE-A001`…`VINE-A050`. Si un hardware ID está ocupado por otro serial, genera un `VINE-XXXX` único, sin modificar el otro dispositivo. Los registros anteriores con hardware ID válido conservan su identidad para no romper el emparejamiento.
+- Ejecuta una única transacción con bloqueo breve de escritura de la tabla `devices`, evitando duplicados incluso con arranques concurrentes. Un reinicio sin cambios no modifica filas ni publica eventos adicionales. Las actualizaciones publicadas conservan el estado y la asignación del dispositivo.
+- Los dispositivos de fábrica no requieren espacio/cava: se asignan con el flujo de pairing/claim. No borra dispositivos fuera del rango; si existen otros, el total global puede superar 50.
+
+Consulta de verificación (sin exponer credenciales):
+
+```sql
+SELECT serial_number, name, factory_name, hardware_id, device_type,
+       (api_key IS NOT NULL AND btrim(api_key) <> '') AS has_api_key
+FROM devices
+WHERE serial_number BETWEEN 'SN-0001' AND 'SN-0050'
+ORDER BY serial_number;
+```
+
+Pruebas aisladas: con `TEST_DATABASE_URL` explícita, ejecutar `python -B -m unittest discover -s tests -p test_factory_device_seed.py -v`. Usan esquemas temporales, no ejecutan el seed de edges ni alteran las tablas habituales.
+
 ## 5. Comprobar que funciona
 
 - Swagger y pruebas de endpoints: <http://localhost:8000/docs>

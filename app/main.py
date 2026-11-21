@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 import logging
 
 from fastapi import FastAPI, Depends
@@ -8,16 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import settings
 from .core.database import AsyncSessionLocal, close_db, init_db
-from .device.applications.command_handlers import DeviceCommandServiceImpl
-from .device.domain.commands import SeedDevicesCommand
-from .device.domain.models import Device, EdgeDevice
-from .device.domain.models.value_objects import ApiKey, DeviceType, HardwareId
+from .device.domain.models import EdgeDevice
+from .device.domain.models.value_objects import ApiKey
 from .device.infrastructure.database.repositories import (
     DeviceAssignmentRepository,
-    DeviceRepository,
     EdgeDeviceRepository,
-    SpaceRepository,
 )
+from .device.infrastructure.seeds.factory_inventory import reconcile_factory_devices
 from .device.infrastructure.database import models as _device_models  # noqa: F401
 from .device.infrastructure.kafka import KafkaDeviceEventPublisher
 from .device.infrastructure.kafka.device_event_consumer import KafkaEdgeEventConsumer
@@ -56,7 +52,6 @@ logging.getLogger("aiokafka.consumer").setLevel(logging.WARNING)
 logging.getLogger("aiokafka.producer").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-FACTORY_DEVICES_FILE = Path(__file__).resolve().parent / "device" / "infrastructure" / "seeds" / "factory_devices.txt"
 EDGE_DEVICE_SEEDS = (
     {"name": "edge-lab-1", "api_key": "edge-test-key-001"},
     {"name": "edge-lab-2", "api_key": "edge-test-key-002"},
@@ -66,58 +61,31 @@ EDGE_DEVICE_SEEDS = (
 async def seed_fixed_factory_devices(
     device_event_publisher: KafkaDeviceEventPublisher | None = None,
 ) -> None:
-    """Seed the 5 fixed devices used as stable factory inventory."""
-    if not FACTORY_DEVICES_FILE.exists():
-        logger.warning("Fixed factory devices file not found: %s", FACTORY_DEVICES_FILE)
-        return
-
-    async with AsyncSessionLocal() as session:
-        device_repo = DeviceRepository(session)
-        seeded = 0
-        for raw_line in FACTORY_DEVICES_FILE.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-
-            serial_number, name, factory_name, hardware_id, device_type = [part.strip() for part in line.split("|")]
-            if await device_repo.find_by_serial_number(serial_number):
-                continue
-
-            device = Device(
-                serial_number=serial_number,
-                name=name,
-                factory_name=factory_name,
-                hardware_id=HardwareId(value=hardware_id),
-                api_key=ApiKey.generate(),
-                device_type=DeviceType(value=device_type),
-            )
-            saved = await device_repo.save(device)
-            if device_event_publisher is not None:
-                await device_event_publisher.publish_device_changed(saved, change_type="CREATED")
-            seeded += 1
-
-        if seeded:
-            logger.info("Seeded %s fixed factory devices", seeded)
-        else:
-            logger.info("Fixed factory devices already present, skipping seed")
+    """Compatibility entry point; both old seed paths now reconcile all 50 devices."""
+    await seed_factory_devices(device_event_publisher)
 
 
 async def seed_factory_devices(
     device_event_publisher: KafkaDeviceEventPublisher | None = None,
 ) -> None:
-    """Create a minimal set of factory devices for frontend pairing flows."""
+    """Complete and normalize SN-0001..SN-0050 in one transaction."""
     async with AsyncSessionLocal() as session:
-        service = DeviceCommandServiceImpl(
-            device_repo=DeviceRepository(session),
-            assignment_repo=DeviceAssignmentRepository(session),
-            space_repo=SpaceRepository(session),
-            device_event_publisher=device_event_publisher,
-        )
-        seeded = await service.handle_seed_devices(SeedDevicesCommand(count=2, start_index=6))
-        if seeded:
-            logger.info("Seeded %s factory devices", len(seeded))
-        else:
-            logger.info("Factory devices already present, skipping seed")
+        changes = await reconcile_factory_devices(session)
+        if device_event_publisher is not None and changes:
+            assignments = {assignment.device.id: assignment for assignment in
+                           await DeviceAssignmentRepository(session).find_all_by_device_ids(
+                               [device.id for device, _ in changes])}
+            for device, change_type in changes:
+                assignment = assignments.get(device.id)
+                if assignment is not None:
+                    # Do not report paired devices as unassigned/offline on normalization.
+                    assignment.device = device
+                    await device_event_publisher.publish_assignment_changed(assignment, change_type=change_type)
+                else:
+                    await device_event_publisher.publish_device_changed(device, change_type=change_type)
+        logger.info("Factory inventory reconciled: %s created, %s updated",
+                    sum(kind == "CREATED" for _, kind in changes),
+                    sum(kind == "UPDATED" for _, kind in changes))
 
 
 async def seed_edge_devices() -> None:
@@ -175,7 +143,6 @@ async def lifespan(app: FastAPI):
         await init_db()
         logger.info("Database initialized")
 
-        await seed_fixed_factory_devices(device_event_publisher)
         await seed_factory_devices(device_event_publisher)
         await seed_edge_devices()
         await outbox_publisher.start()
