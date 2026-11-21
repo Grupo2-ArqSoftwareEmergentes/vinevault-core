@@ -25,6 +25,7 @@ Este documento resume lo que el `edge` espera recibir y enviar por Kafka para qu
 
 - El edge acepta algunos payloads en `snake_case` y también en `camelCase`, especialmente en provisioning e incidents.
 - En `vinevault.provisioning.devices.changed`, el edge valida que existan al menos `device_id`, `hardware_id`, `api_key` y `status`.
+- El seed Core normaliza `SN-0001`..`SN-0050` a `VINE-A001`..`VINE-A050` (incluidos 6/7). Publica los cambios conservando `device_id` y API key: el repositorio de caché de Edge hace upsert por `device_id` y actualiza `hardware_id`, sin crear otra identidad. No cambia el formato del evento. Simuladores/firmware deben actualizar el hardware ID local; si Kafka no estuvo disponible, solicitar `vinevault.provisioning.devices.sync.requested` para refrescar la caché. Las pruebas del seed simulan el publicador, no acreditan entrega real por Kafka.
 - En `vinevault.device.commands.pending`, el edge resuelve el comando por `device_id` y luego lo asocia con `hardware_id`.
 - Para `vinevault.device.commands.acknowledged`, si `status = FAILED`, conviene enviar `failure_reason` explícitamente.
 - Para `vinevault.device.telemetry.recorded`, el edge normaliza la telemetría local y la reenvía con `hardware_id` como key Kafka.

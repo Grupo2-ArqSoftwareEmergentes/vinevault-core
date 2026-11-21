@@ -105,8 +105,9 @@ El backend carga `.env` y arranca `app.main:app` en el puerto **8000**, con reca
 
 El arranque completa los 50 dispositivos `SN-0001` a `SN-0050` del manifiesto `app/device/infrastructure/seeds/factory_devices.txt`. En cada inicio normaliza `name` y `factory_name` a `Sensor 0001`…`Sensor 0050` y `device_type` a `air-quality-v1`. Esto también reemplaza nombres personalizados dentro de ese rango reservado al seed.
 
-- Solo inserta los seriales faltantes. Conserva IDs, fechas de creación, hardware IDs válidos, API keys no vacías y asignaciones existentes; genera claves aleatorias seguras para los nuevos o con clave vacía. No imprime claves en logs.
-- Los nuevos usan `VINE-A001`…`VINE-A050`. Si un hardware ID está ocupado por otro serial, genera un `VINE-XXXX` único, sin modificar el otro dispositivo. Los registros anteriores con hardware ID válido conservan su identidad para no romper el emparejamiento.
+- Solo inserta los seriales faltantes. Conserva IDs internos, fechas de creación, API keys no vacías y asignaciones existentes; genera claves aleatorias seguras para los nuevos o con clave vacía. No imprime claves en logs.
+- Todos usan `VINE-A001`…`VINE-A050`, incluidos los sensores 6 y 7 anteriores (`VINE-A006`/`VINE-A007`). Si un hardware ID canónico pertenece a otro serial, aborta la transacción con un error explícito: resolver el conflicto antes de arrancar; no roba IDs ni modifica el otro dispositivo.
+- El cambio de hardware ID publica una actualización conservando `device_id` y API key. Edge actualiza su caché por `device_id`; los simuladores/firmware que usen el ID anterior deben configurarse con el nuevo. Tener Kafka disponible durante este cambio o solicitar resincronización posteriormente; no se ha verificado entrega real al broker con estas pruebas.
 - Ejecuta una única transacción con bloqueo breve de escritura de la tabla `devices`, evitando duplicados incluso con arranques concurrentes. Un reinicio sin cambios no modifica filas ni publica eventos adicionales. Las actualizaciones publicadas conservan el estado y la asignación del dispositivo.
 - Los dispositivos de fábrica no requieren espacio/cava: se asignan con el flujo de pairing/claim. No borra dispositivos fuera del rango; si existen otros, el total global puede superar 50.
 

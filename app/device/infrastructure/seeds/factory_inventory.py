@@ -1,13 +1,10 @@
 """Atomic, repeatable reconciliation of the development factory inventory."""
 from pathlib import Path
-import secrets
-
-from pydantic import ValidationError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.device.domain.models import Device
-from app.device.domain.models.value_objects import ApiKey, HardwareId
+from app.device.domain.models.value_objects import ApiKey
 from app.device.infrastructure.database.models.device_orm import DeviceORM
 
 
@@ -30,14 +27,6 @@ def factory_device_specs() -> list[tuple[str, str, str, str, str]]:
     return specs
 
 
-def _unique_hardware_id(preferred: str, occupied: set[str]) -> str:
-    candidate = preferred
-    while candidate in occupied:
-        candidate = "VINE-" + "".join(secrets.choice("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ") for _ in range(4))
-    occupied.add(candidate)
-    return candidate
-
-
 def _unique_api_key(occupied: set[str]) -> str:
     candidate = ApiKey.generate().value
     while candidate in occupied:
@@ -52,6 +41,8 @@ async def reconcile_factory_devices(session: AsyncSession) -> list[tuple[Device,
     Serialize startup seeders and other device writers before reading identifiers.
     The short table lock also prevents a concurrent insert from taking a chosen
     hardware ID/API key between our lookup and flush. No unrelated rows are deleted.
+    Canonical hardware IDs are reserved by serial; conflicts abort without stealing
+    another device's identity or partially normalizing the inventory.
     """
     specs = factory_device_specs()
     async with session.begin():
@@ -59,8 +50,17 @@ async def reconcile_factory_devices(session: AsyncSession) -> list[tuple[Device,
         existing = {row.serial_number: row for row in await session.scalars(
             select(DeviceORM).where(DeviceORM.serial_number.in_([spec[0] for spec in specs]))
         )}
-        identifiers = (await session.execute(select(DeviceORM.hardware_id, DeviceORM.api_key))).all()
-        hardware_ids = {row.hardware_id for row in identifiers}
+        identifiers = (await session.execute(select(
+            DeviceORM.serial_number, DeviceORM.hardware_id, DeviceORM.api_key,
+        ))).all()
+        hardware_owners = {row.hardware_id: row.serial_number for row in identifiers}
+        for serial, _, _, hardware_id, _ in specs:
+            owner = hardware_owners.get(hardware_id)
+            if owner is not None and owner != serial:
+                raise ValueError(
+                    f"Cannot normalize {serial}: hardware ID {hardware_id} belongs to {owner}; "
+                    "resolve the hardware ID conflict before restarting"
+                )
         api_keys = {row.api_key for row in identifiers}
         changed = []
         for serial, name, factory_name, hardware_id, device_type in specs:
@@ -68,7 +68,7 @@ async def reconcile_factory_devices(session: AsyncSession) -> list[tuple[Device,
             if row is None:
                 row = DeviceORM(
                     serial_number=serial, name=name, factory_name=factory_name,
-                    hardware_id=_unique_hardware_id(hardware_id, hardware_ids),
+                    hardware_id=hardware_id,
                     api_key=_unique_api_key(api_keys), device_type=device_type,
                 )
                 session.add(row)
@@ -77,10 +77,7 @@ async def reconcile_factory_devices(session: AsyncSession) -> list[tuple[Device,
 
             before = (row.name, row.factory_name, row.hardware_id, row.api_key, row.device_type)
             row.name, row.factory_name, row.device_type = name, factory_name, device_type
-            try:
-                HardwareId(value=row.hardware_id)
-            except ValidationError:
-                row.hardware_id = _unique_hardware_id(hardware_id, hardware_ids)
+            row.hardware_id = hardware_id
             if not row.api_key or not row.api_key.strip():
                 row.api_key = _unique_api_key(api_keys)
             if before != (row.name, row.factory_name, row.hardware_id, row.api_key, row.device_type):

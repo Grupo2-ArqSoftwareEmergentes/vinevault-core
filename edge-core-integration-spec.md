@@ -6,6 +6,8 @@ La base original venia de otro proyecto similar, pero aqui se ajusta a lo que re
 
 ## 1. Panorama general
 
+Inventario de fábrica: el arranque Core normaliza los 50 seriales `SN-0001`..`SN-0050` a `VINE-A001`..`VINE-A050`, incluyendo `Sensor 0006`/`Sensor 0007`. Conserva IDs internos, claves válidas y asignaciones. Emite actualizaciones en `vinevault.provisioning.devices.changed` sin cambiar el esquema; Edge actualiza el hardware ID de la misma fila mediante upsert por `device_id`. Actualizar también los IDs configurados en firmware/simuladores. Si se perdió el evento por indisponibilidad del broker, solicitar resincronización completa mediante `vinevault.provisioning.devices.sync.requested`. No equivale a una prueba de entrega real Core/Kafka/Edge.
+
 `vinevault-core` hoy maneja cinco bloques principales:
 
 1. Identidad y autenticacion de usuarios via IAM.

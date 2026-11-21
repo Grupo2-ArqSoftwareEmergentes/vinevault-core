@@ -74,7 +74,7 @@ class FactoryDeviceSeedTests(PostgresAPITestCase):
             session.add_all(devices)
             await session.flush()
             assignment = DeviceAssignmentORM(
-                device_id=devices[0].id, owner_user_id="1", space_id=UUID(space["id"]),
+                device_id=devices[5].id, owner_user_id="1", space_id=UUID(space["id"]),
                 status="ONLINE", configuration={"preserve": "yes"},
             )
             session.add(assignment)
@@ -87,7 +87,8 @@ class FactoryDeviceSeedTests(PostgresAPITestCase):
         rows = await self.snapshot()
         self.assertEqual(len(rows), 50)
         for i, row in enumerate(rows[:7], 1):
-            self.assertEqual((row.id, row.hardware_id, row.api_key), identities[i - 1])
+            self.assertEqual((row.id, row.api_key), (identities[i - 1][0], identities[i - 1][2]))
+            self.assertEqual(row.hardware_id, f"VINE-A{i:03d}")
             self.assertEqual(row.name, f"Sensor {i:04d}")
             self.assertEqual(row.factory_name, row.name)
         async with self.sessions() as session:
@@ -97,9 +98,19 @@ class FactoryDeviceSeedTests(PostgresAPITestCase):
             self.assertEqual(assignment.configuration, {"preserve": "yes"})
         publisher.publish_assignment_changed.assert_awaited_once()
         published = publisher.publish_assignment_changed.call_args.args[0]
-        self.assertEqual(published.device.name, "Sensor 0001")
+        self.assertEqual(published.device.name, "Sensor 0006")
+        self.assertEqual(published.device.hardware_id.value, "VINE-A006")
         self.assertEqual(published.status.value, "ONLINE")
         self.assertEqual(published.space_id, UUID(space["id"]))
+        events = [call.args[0] for call in publisher.publish_device_changed.call_args_list
+                  if call.args[0].serial_number == "SN-0007"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].hardware_id.value, "VINE-A007")
+        publisher.reset_mock()
+        await self.seed(publisher)
+        self.assertEqual(await self.snapshot(), rows)
+        publisher.publish_device_changed.assert_not_awaited()
+        publisher.publish_assignment_changed.assert_not_awaited()
 
     async def test_missing_records_are_recreated_without_touching_other_forty_eight(self):
         await self.seed()
@@ -120,11 +131,28 @@ class FactoryDeviceSeedTests(PostgresAPITestCase):
         await asyncio.gather(self.seed(), self.seed(), self.seed())
         self.assertEqual(len(await self.snapshot()), 50)
 
-    async def test_collision_and_blank_legacy_fields_do_not_corrupt_unrelated_devices(self):
+    async def test_hardware_collision_aborts_without_mutating_any_devices(self):
         async with self.sessions() as session:
             session.add_all([
                 DeviceORM(serial_number="CUSTOM-1", name="Custom", factory_name="Custom",
                           hardware_id="VINE-A001", api_key="custom-key", device_type="custom-v1"),
+                DeviceORM(serial_number="SN-0007", name="Old", factory_name="Old",
+                          hardware_id="invalid", api_key=" ", device_type="legacy"),
+            ])
+            await session.commit()
+        before = await self.snapshot()
+        publisher = AsyncMock()
+        with self.assertRaisesRegex(ValueError, "VINE-A001 belongs to CUSTOM-1"):
+            await self.seed(publisher)
+        self.assertEqual(await self.snapshot(), before)
+        publisher.publish_device_changed.assert_not_awaited()
+        publisher.publish_assignment_changed.assert_not_awaited()
+
+    async def test_blank_legacy_fields_are_repaired_and_unrelated_devices_preserved(self):
+        async with self.sessions() as session:
+            session.add_all([
+                DeviceORM(serial_number="CUSTOM-1", name="Custom", factory_name="Custom",
+                          hardware_id="VINE-Z999", api_key="custom-key", device_type="custom-v1"),
                 DeviceORM(serial_number="SN-0007", name="Old", factory_name="Old",
                           hardware_id="invalid", api_key=" ", device_type="legacy"),
             ])
@@ -134,11 +162,12 @@ class FactoryDeviceSeedTests(PostgresAPITestCase):
         self.assertEqual(len(rows), 51)  # Never delete unrelated devices to force a total of 50.
         custom = next(row for row in rows if row.serial_number == "CUSTOM-1")
         self.assertEqual((custom.name, custom.hardware_id, custom.api_key, custom.device_type),
-                         ("Custom", "VINE-A001", "custom-key", "custom-v1"))
+                         ("Custom", "VINE-Z999", "custom-key", "custom-v1"))
         factory = [row for row in rows if row.serial_number.startswith("SN-")]
         self.assertEqual(len(factory), 50)
         for row in factory:
             HardwareId(value=row.hardware_id)
+            self.assertEqual(row.hardware_id, f"VINE-A{int(row.serial_number[3:]):03d}")
             self.assertTrue(row.api_key.strip())
             self.assertEqual(row.device_type, "air-quality-v1")
         self.assertEqual(len({row.hardware_id for row in rows}), 51)
