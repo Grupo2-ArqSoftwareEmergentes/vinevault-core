@@ -1,7 +1,7 @@
 """Device-facing cellar association facade; owns cellar persistence and validation."""
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.infrastructure.database.resource_quota_repository import ResourceQuotaRepository
@@ -50,3 +50,24 @@ class DeviceCellarACL:
             WineCellarORM.space_id == space_id, WineCellarORM.device_id.in_(device_ids)
         ))
         return {device_id: (cellar_id, name) for device_id, cellar_id, name in rows}
+
+    async def change_link(self, device_id: UUID, space_id: UUID, cellar_id: UUID | None) -> None:
+        """Stage a move/unlink atomically; caller owns commit and assignment validation."""
+        await ResourceQuotaRepository(self.session).lock_space(space_id)
+        rows = (await self.session.execute(select(WineCellarORM).where(
+            WineCellarORM.space_id == space_id,
+            or_(WineCellarORM.device_id == device_id, WineCellarORM.id == cellar_id),
+        ).order_by(WineCellarORM.id).with_for_update().execution_options(populate_existing=True))).scalars().all()
+        target = next((row for row in rows if row.id == cellar_id), None)
+        if cellar_id is not None and target is None:
+            exists = await self.session.scalar(select(WineCellarORM.id).where(WineCellarORM.id == cellar_id))
+            raise CellarDeviceLinkError("Wine cellar does not belong to the selected space" if exists else "Wine cellar not found", 409 if exists else 404)
+        if target is not None and target.device_id not in (None, device_id):
+            raise CellarDeviceLinkError("Wine cellar already has a linked device")
+        for row in rows:
+            if row.device_id == device_id and row is not target:
+                row.device_id = None
+        await self.session.flush()  # Release the unique device binding before setting the target.
+        if target is not None:
+            target.device_id = device_id
+            await self.session.flush()

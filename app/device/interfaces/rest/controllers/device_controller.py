@@ -26,6 +26,7 @@ from app.dependencies import (
 )
 from app.telemetry.interfaces.rest.resources import TelemetryRecordResponse
 from app.wine_cellar.interfaces.acl import CellarDeviceLinkError
+from ..resources.request_models import ChangeDeviceCellarRequest
 
 
 router = APIRouter(prefix="/api/v1/devices", tags=["Devices"])
@@ -115,6 +116,28 @@ async def get_device(
     activity = await telemetry_repo.latest_activity([assignment.id])
     links = await cellar_acl.links_for_devices([assignment.device.id], assignment.space_id)
     return DeviceResponse.from_assignment(assignment, activity.get(assignment.id), cellar=links.get(assignment.device.id))
+
+
+@router.put("/{device_id}/cellar")
+async def change_device_cellar(
+    device_id: UUID,
+    request: ChangeDeviceCellarRequest,
+    user_id: int = Depends(get_current_user_id),
+    service: DeviceCommandServiceImpl = Depends(get_device_command_service),
+    cellar_acl = Depends(get_device_cellar_acl),
+    telemetry_repo = Depends(get_telemetry_repository),
+) -> DeviceResponse:
+    try:
+        assignment = await service.handle_change_device_cellar(device_id, user_id, request.cellar_id)
+        links = await cellar_acl.links_for_devices([device_id], assignment.space_id)
+        activity = await telemetry_repo.latest_activity([assignment.id])
+        return DeviceResponse.from_assignment(assignment, activity.get(assignment.id), cellar=links.get(device_id))
+    except CellarDeviceLinkError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error))
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error))
 
 
 @router.get("/{device_id}/status")

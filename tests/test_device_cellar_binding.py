@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.device.infrastructure.database.models.device_orm import DeviceORM
 from app.device.infrastructure.database.models.device_assignment_orm import DeviceAssignmentORM
+from app.device.infrastructure.database.models.space_member_orm import SpaceMemberORM
 from app.wine_cellar.infrastructure.database.models.wine_cellar_orm import WineCellarORM
 from app.wine_cellar.interfaces.acl import DeviceCellarACL
 from test_personal_context import PostgresAPITestCase
@@ -110,3 +111,88 @@ class DeviceCellarBindingTests(PostgresAPITestCase):
         await self.assert_unclaimed(pairing)
         async with self.sessions() as session:
             self.assertIsNone((await session.get(WineCellarORM, UUID(space["default_wine_cellar"]["id"]))).device_id)
+
+    async def move(self, pairing, cellar_id, user_id=1):
+        return await self.client.put(f"/api/v1/devices/{pairing['device_id']}/cellar", json={"cellar_id": cellar_id}, headers=self.headers(user_id))
+
+    async def test_quick_move_and_unlink_are_persistent_idempotent_and_preserve_device_space(self):
+        space = await self.create_space()
+        old = space['default_wine_cellar']
+        target = await self.create_cellar(space)
+        pairing = await self.pair()
+        self.assertEqual((await self.claim(pairing, space, old['id'])).status_code, 200)
+        for _ in range(2):
+            response = await self.move(pairing, target['id'])
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['cellar_id'], target['id'])
+            self.assertEqual(response.json()['name'], 'Mi sensor 1')
+            self.assertEqual(response.json()['space_id'], space['id'])
+        async with self.sessions() as session:
+            self.assertIsNone((await session.get(WineCellarORM, UUID(old['id']))).device_id)
+            self.assertEqual((await session.get(WineCellarORM, UUID(target['id']))).device_id, UUID(pairing['device_id']))
+        for _ in range(2):
+            response = await self.move(pairing, None)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIsNone(response.json()['cellar_id'])
+        detail = await self.client.get(f"/api/v1/devices/{pairing['device_id']}", headers=self.headers())
+        self.assertIsNone(detail.json()['cellar_name'])
+        self.assertEqual(detail.json()['space_id'], space['id'])
+
+    async def test_quick_move_conflicts_never_remove_the_existing_link(self):
+        space = await self.create_space()
+        old = space['default_wine_cellar']
+        occupied = await self.create_cellar(space)
+        other = await self.create_space('Otro espacio')
+        first, second = await self.pair(), await self.pair(2)
+        await self.claim(first, space, old['id'])
+        await self.claim(second, space, occupied['id'])
+        for target, expected in [(occupied['id'], 409), (other['default_wine_cellar']['id'], 409), (str(uuid4()), 404)]:
+            response = await self.move(first, target)
+            self.assertEqual(response.status_code, expected, response.text)
+            detail = await self.client.get(f"/api/v1/devices/{first['device_id']}", headers=self.headers())
+            self.assertEqual(detail.json()['cellar_id'], old['id'])
+        invalid = await self.client.put(f"/api/v1/devices/{first['device_id']}/cellar", json={}, headers=self.headers())
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+
+    async def test_quick_assignment_denies_non_members_and_read_only_members(self):
+        space = await self.create_space()
+        pairing = await self.pair()
+        await self.claim(pairing, space, space['default_wine_cellar']['id'])
+        async with self.sessions() as session:
+            session.add(SpaceMemberORM(space_id=UUID(space['id']), user_id=2, role='WAITER'))
+            await session.commit()
+        for user_id in (2, 3):
+            denied = await self.move(pairing, None, user_id)
+            self.assertEqual(denied.status_code, 403, denied.text)
+        detail = await self.client.get(f"/api/v1/devices/{pairing['device_id']}", headers=self.headers())
+        self.assertEqual(detail.json()['cellar_id'], space['default_wine_cellar']['id'])
+
+    async def test_quick_concurrent_moves_have_one_winner_and_keep_losers_original_cellar(self):
+        space = await self.create_space()
+        first_old = space['default_wine_cellar']
+        second_old, target = await self.create_cellar(space), await self.create_cellar(space)
+        first, second = await self.pair(), await self.pair(2)
+        await self.claim(first, space, first_old['id'])
+        await self.claim(second, space, second_old['id'])
+        results = await asyncio.gather(self.move(first, target['id']), self.move(second, target['id']))
+        self.assertEqual(sorted(response.status_code for response in results), [200, 409])
+        for result, pairing, old in zip(results, (first, second), (first_old, second_old)):
+            detail = await self.client.get(f"/api/v1/devices/{pairing['device_id']}", headers=self.headers())
+            self.assertEqual(detail.json()['cellar_id'], target['id'] if result.status_code == 200 else old['id'])
+
+    async def test_quick_move_rollback_restores_original_after_staged_changes(self):
+        space = await self.create_space()
+        old, target = space['default_wine_cellar'], await self.create_cellar(space)
+        pairing = await self.pair()
+        await self.claim(pairing, space, old['id'])
+        original = DeviceCellarACL.change_link
+        async def fail_after_staging(acl, *args):
+            await original(acl, *args)
+            raise RuntimeError('storage unavailable')
+        with patch.object(DeviceCellarACL, 'change_link', fail_after_staging):
+            with self.assertRaises(RuntimeError):
+                await self.move(pairing, target['id'])
+        detail = await self.client.get(f"/api/v1/devices/{pairing['device_id']}", headers=self.headers())
+        self.assertEqual(detail.json()['cellar_id'], old['id'])
+        async with self.sessions() as session:
+            self.assertIsNone((await session.get(WineCellarORM, UUID(target['id']))).device_id)

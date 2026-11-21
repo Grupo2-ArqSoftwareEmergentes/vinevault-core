@@ -132,6 +132,22 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         await self._publish_assignment_changed(saved, change_type="UPDATED")
         return saved
 
+    async def handle_change_device_cellar(self, device_id: UUID, user_id: int, cellar_id: UUID | None) -> DeviceAssignment:
+        assignment = await self._assignment_repo.find_by_device_id(device_id)
+        if assignment is None:
+            raise ValueError("Device assignment not found")
+        await self._require_space_configuration(assignment.space_id, user_id)
+        if self._cellar_acl is None:
+            raise ValueError("Cellar association is not configured")
+        space_id = assignment.space_id
+        await self._cellar_acl.change_link(device_id, space_id, cellar_id)
+        # Maintain the established lock order: space, cellars, assignment.
+        current = await self._assignment_repo.find_by_device_id(device_id, for_update=True)
+        if current is None or current.space_id != space_id:
+            raise PermissionError("Device assignment changed")
+        await self._assignment_repo.commit()
+        return current
+
     async def handle_reset_device_assignment(self, command: ResetDeviceAssignmentCommand) -> None:
         assignment = await self._assignment_repo.find_by_device_id(command.device_id)
         if not assignment:
