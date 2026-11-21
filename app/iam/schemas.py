@@ -4,12 +4,15 @@ from typing import Optional
 
 # Request schemas
 class UserCreate(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
+    username: str | None = Field(default=None, min_length=3, max_length=50)
+    full_name: str = Field(default="", max_length=255)
     email: EmailStr
     password: str = Field(..., min_length=6, max_length=72)
     
     @validator('username')
     def username_alphanumeric(cls, v):
+        if v is None:
+            return v
         if not v.isalnum():
             raise ValueError('Username must be alphanumeric')
         return v
@@ -26,6 +29,8 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: str
+    full_name: str
+    extra_spaces_allowance: int
     is_active: bool
     is_superuser: bool
     created_at: datetime

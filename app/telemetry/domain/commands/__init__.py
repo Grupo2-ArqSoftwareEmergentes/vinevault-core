@@ -1,0 +1,2 @@
+from .record_device_telemetry_command import RecordDeviceTelemetryCommand
+

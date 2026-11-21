@@ -1,4 +1,5 @@
 from .device_repository import DeviceRepository
+from .alert_incident_repository import AlertIncidentRepository
 from .edge_device_repository import EdgeDeviceRepository
 from .device_assignment_repository import DeviceAssignmentRepository
 from .device_command_repository import DeviceCommandRepository

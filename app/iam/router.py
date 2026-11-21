@@ -19,7 +19,7 @@ async def register(
     db: AsyncSession = Depends(get_db)
 ):
     # Verificar si el usuario ya existe
-    if await crud.get_user_by_username(db, user.username):
+    if user.username and await crud.get_user_by_username(db, user.username):
         raise HTTPException(status_code=400, detail="Username already registered")
     
     if await crud.get_user_by_email(db, user.email):

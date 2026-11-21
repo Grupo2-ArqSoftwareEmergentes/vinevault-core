@@ -1,3 +1,4 @@
+from .acknowledge_device_command import AcknowledgeDeviceCommand
 from .claim_device_command import ClaimDeviceCommand
 from .create_device_command import CreateDeviceCommand
 from .pair_device_command import PairDeviceCommand

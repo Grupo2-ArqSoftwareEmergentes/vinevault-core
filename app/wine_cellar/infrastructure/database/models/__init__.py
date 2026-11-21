@@ -1,2 +1,3 @@
 from .wine_cellar_orm import WineCellarORM
 from .wine_inventory_item_orm import WineInventoryItemORM
+from .stock_movement_orm import StockMovementORM

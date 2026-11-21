@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
@@ -20,6 +20,14 @@ class DeviceAssignment(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+    @staticmethod
+    def _to_naive_utc(value: Optional[datetime]) -> Optional[datetime]:
+        if value is None:
+            return None
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
     def claim_to_space(self, space_id: UUID, user_id: UserId) -> None:
         if self.owner_user_id is not None:
             raise IllegalStateError("Device already claimed")
@@ -40,7 +48,7 @@ class DeviceAssignment(BaseModel):
             raise ValueError("Device status must not be null")
         self.status = status
         if status != DeviceStatus.OFFLINE:
-            self.last_seen_at = occurred_at or datetime.utcnow()
+            self.last_seen_at = self._to_naive_utc(occurred_at) or datetime.utcnow()
 
     def mark_online(self) -> None:
         self.status = DeviceStatus.ONLINE

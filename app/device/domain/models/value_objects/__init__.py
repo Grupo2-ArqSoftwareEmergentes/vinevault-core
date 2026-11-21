@@ -1,4 +1,6 @@
 from .api_key import ApiKey
+from .alert_metric_type import AlertMetricType
+from .alert_status import AlertStatus
 from .claim_token import ClaimToken
 from .device_command_status import DeviceCommandStatus
 from .device_command_type import DeviceCommandType

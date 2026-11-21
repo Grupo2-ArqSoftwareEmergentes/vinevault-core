@@ -18,7 +18,7 @@ async def get_current_user(
     )
     
     payload = security.decode_token(token)
-    if not payload:
+    if not payload or payload.get("type") == "refresh":
         raise credentials_exception
     
     user_id: int = payload.get("user_id")

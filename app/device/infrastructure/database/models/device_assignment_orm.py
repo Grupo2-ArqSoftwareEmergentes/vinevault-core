@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 import uuid
 
@@ -26,6 +26,14 @@ class DeviceAssignmentORM(Base):
 
     device = relationship("DeviceORM", back_populates="assignment")
 
+    @staticmethod
+    def _to_naive_utc(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
     def to_domain(self) -> "DeviceAssignment":
         from app.device.domain.models import DeviceAssignment
         from app.device.domain.models.value_objects import ClaimToken, DeviceStatus, UserId
@@ -40,10 +48,10 @@ class DeviceAssignmentORM(Base):
             status=DeviceStatus(self.status),
             configuration=dict(self.configuration or {}),
             claim_token=claim_token,
-            activated_at=self.activated_at,
-            last_seen_at=self.last_seen_at,
-            created_at=self.created_at,
-            updated_at=self.updated_at,
+            activated_at=self._to_naive_utc(self.activated_at),
+            last_seen_at=self._to_naive_utc(self.last_seen_at),
+            created_at=self._to_naive_utc(self.created_at),
+            updated_at=self._to_naive_utc(self.updated_at),
         )
 
     @classmethod
@@ -56,8 +64,8 @@ class DeviceAssignmentORM(Base):
             status=assignment.status.value,
             configuration=dict(assignment.configuration or {}),
             claim_token=assignment.claim_token.value if assignment.claim_token else None,
-            activated_at=assignment.activated_at,
-            last_seen_at=assignment.last_seen_at,
-            created_at=assignment.created_at,
-            updated_at=assignment.updated_at,
+            activated_at=cls._to_naive_utc(assignment.activated_at),
+            last_seen_at=cls._to_naive_utc(assignment.last_seen_at),
+            created_at=cls._to_naive_utc(assignment.created_at),
+            updated_at=cls._to_naive_utc(assignment.updated_at),
         )

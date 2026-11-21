@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
+from uuid import uuid4
 from typing import Optional
 from . import models, schemas
 from ..core import security
@@ -20,7 +21,8 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[models.User
 async def create_user(db: AsyncSession, user: schemas.UserCreate) -> models.User:
     hashed_password = security.get_password_hash(user.password)
     db_user = models.User(
-        username=user.username,
+        username=user.username or f"u{uuid4().hex}",
+        full_name=user.full_name.strip(),
         email=user.email,
         hashed_password=hashed_password,
         is_superuser=False,

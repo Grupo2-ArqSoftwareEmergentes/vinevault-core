@@ -14,6 +14,15 @@ class WineCellar(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+    @classmethod
+    def create_default(cls, space_id: UUID) -> "WineCellar":
+        return cls(
+            space_id=space_id,
+            name="Cava Principal",
+            description="Cava inicial creada automáticamente",
+            device_id=None,
+        )
+
     def update(self, name: str, description: Optional[str]) -> None:
         if not name or not name.strip():
             raise ValueError("Wine cellar name must not be null or blank")

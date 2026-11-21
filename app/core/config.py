@@ -1,6 +1,8 @@
 from urllib.parse import quote_plus
+from typing import Literal
 
 from dotenv import load_dotenv
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 load_dotenv()
@@ -25,10 +27,25 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     CORS_ORIGINS: str = "http://localhost:4200,http://127.0.0.1:4200"
 
+    SQLALCHEMY_ECHO: bool = False
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
     KAFKA_CONSUMER_GROUP_ID: str = "vinevault-core"
 
     BILLING_SERVICE_URL: str = "http://localhost:8001"
+
+    # Gemini AI
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_AUTOCOMPLETE_MODEL: str = ""
+    GEMINI_AUTOCOMPLETE_WEB_SEARCH: bool = True
+    GEMINI_MAX_OUTPUT_TOKENS: int = 500
+    GEMINI_TEMPERATURE: float = 0.0
+    GEMINI_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=60)
+
+    WINE_AUTOCOMPLETE_PROVIDER: Literal["deepseek", "gemini"] = "deepseek"
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_MODEL: str = "deepseek-flash"
+    DEEPSEEK_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=60)
 
     @property
     def ASYNC_DATABASE_URL(self) -> str:

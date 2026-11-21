@@ -23,6 +23,7 @@ class DeviceORM(Base):
     # Relationships
     assignment = relationship("DeviceAssignmentORM", back_populates="device", uselist=False)
     commands = relationship("DeviceCommandORM", back_populates="device")
+    telemetry_records = relationship("DeviceTelemetryORM", back_populates="device")
 
     def to_domain(self) -> "Device":
         from app.device.domain.models import Device

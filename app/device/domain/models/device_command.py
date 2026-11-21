@@ -19,17 +19,17 @@ class DeviceCommand(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    def mark_sent(self) -> None:
+    def mark_sent(self, sent_at: datetime | None = None) -> None:
         if self.status == DeviceCommandStatus.PENDING:
             self.status = DeviceCommandStatus.SENT
-            self.sent_at = datetime.utcnow()
+            self.sent_at = sent_at or datetime.utcnow()
 
-    def mark_executed(self) -> None:
+    def mark_executed(self, executed_at: datetime | None = None) -> None:
         self.status = DeviceCommandStatus.EXECUTED
-        self.executed_at = datetime.utcnow()
+        self.executed_at = executed_at or datetime.utcnow()
         self.failure_reason = None
 
-    def mark_failed(self, failure_reason: str) -> None:
+    def mark_failed(self, failure_reason: str, executed_at: datetime | None = None) -> None:
         self.status = DeviceCommandStatus.FAILED
-        self.executed_at = datetime.utcnow()
+        self.executed_at = executed_at or datetime.utcnow()
         self.failure_reason = failure_reason

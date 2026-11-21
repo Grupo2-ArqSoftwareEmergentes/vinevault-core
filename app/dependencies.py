@@ -8,9 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.database import get_db
 from .core.security import decode_token
+from .device.applications.space_authorization_service import SpaceAuthorizationService
+from .device.infrastructure.database.repositories.space_member_repository import SpaceMemberRepository
 
 # Repositorios Device
 from .device.infrastructure.database.repositories import (
+    AlertIncidentRepository,
     DeviceRepository,
     DeviceAssignmentRepository,
     DeviceCommandRepository,
@@ -18,11 +21,14 @@ from .device.infrastructure.database.repositories import (
     OrganizationRepository,
     SpaceRepository
 )
+from .shared.infrastructure.database.repositories import IntegrationOutboxRepository
 from .wine_cellar.infrastructure.database.repositories import WineCellarRepository
 from .wine_cellar.infrastructure.database.repositories import WineInventoryRepository
+from .telemetry.infrastructure.database.repositories import TelemetryRepository
 
 # Servicios Device
 from .device.applications.command_handlers import (
+    AlertIncidentServiceImpl,
     DeviceCommandServiceImpl,
     DeviceControlCommandServiceImpl,
     DevicePresenceCommandServiceImpl,
@@ -30,6 +36,7 @@ from .device.applications.command_handlers import (
     OrganizationCommandServiceImpl,
     SpaceCommandServiceImpl
 )
+from .telemetry.applications.command_handlers import TelemetryCommandServiceImpl
 from .device.applications.query_handlers import (
     DeviceQueryServiceImpl,
     DeviceStatusQueryServiceImpl,
@@ -68,6 +75,14 @@ def get_device_command_repository(db: AsyncSession = Depends(get_db)) -> DeviceC
     return DeviceCommandRepository(db)
 
 
+def get_alert_incident_repository(db: AsyncSession = Depends(get_db)) -> AlertIncidentRepository:
+    return AlertIncidentRepository(db)
+
+
+def get_integration_outbox_repository(db: AsyncSession = Depends(get_db)) -> IntegrationOutboxRepository:
+    return IntegrationOutboxRepository(db)
+
+
 def get_organization_repository(db: AsyncSession = Depends(get_db)) -> OrganizationRepository:
     return OrganizationRepository(db)
 
@@ -76,12 +91,46 @@ def get_space_repository(db: AsyncSession = Depends(get_db)) -> SpaceRepository:
     return SpaceRepository(db)
 
 
+def get_space_creation_service(db: AsyncSession = Depends(get_db)):
+    from .device.applications.personal_space_service import PersonalSpaceService
+    from .shared.infrastructure.database.space_creation_unit_of_work import SpaceCreationUnitOfWork
+
+    return PersonalSpaceService(SpaceCreationUnitOfWork(db))
+
+
+def get_space_deletion_service(db: AsyncSession = Depends(get_db)):
+    from .device.applications.space_deletion_service import SpaceDeletionService
+    from .shared.infrastructure.database.space_deletion_unit_of_work import SpaceDeletionUnitOfWork
+
+    return SpaceDeletionService(SpaceDeletionUnitOfWork(db))
+
+
 def get_wine_cellar_repository(db: AsyncSession = Depends(get_db)) -> WineCellarRepository:
     return WineCellarRepository(db)
 
 
 def get_wine_inventory_repository(db: AsyncSession = Depends(get_db)) -> WineInventoryRepository:
     return WineInventoryRepository(db)
+
+
+def get_resource_quota_repository(db: AsyncSession = Depends(get_db)):
+    from .shared.infrastructure.database.resource_quota_repository import ResourceQuotaRepository
+    return ResourceQuotaRepository(db)
+
+
+def get_inventory_stock_service(db: AsyncSession = Depends(get_db)):
+    from .wine_cellar.applications.inventory_stock_service import InventoryStockService
+    from .wine_cellar.infrastructure.database.stock_unit_of_work import StockUnitOfWork
+    return InventoryStockService(StockUnitOfWork(db))
+
+
+def get_stock_movement_repository(db: AsyncSession = Depends(get_db)):
+    from .wine_cellar.infrastructure.database.repositories.stock_movement_repository import StockMovementRepository
+    return StockMovementRepository(db)
+
+
+def get_telemetry_repository(db: AsyncSession = Depends(get_db)) -> TelemetryRepository:
+    return TelemetryRepository(db)
 
 
 def get_device_command_service(
@@ -97,7 +146,9 @@ def get_device_command_service(
         device_repo=repos["device"],
         assignment_repo=repos["assignment"],
         space_repo=repos["space"],
+        device_command_repo=repos["device_command"],
         device_event_publisher=device_event_publisher,
+        space_authorization=SpaceAuthorizationService(SpaceMemberRepository(db)),
     )
 
 
@@ -115,13 +166,34 @@ def get_device_query_service(
 
 
 def get_device_control_command_service(
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> DeviceControlCommandServiceImpl:
     """Obtener servicio de comandos de control de Device"""
     repos = get_device_repositories(db)
+    device_event_publisher = None
+    if request is not None:
+        device_event_publisher = getattr(request.app.state, "device_event_publisher", None)
     return DeviceControlCommandServiceImpl(
         assignment_repo=repos["assignment"],
         device_command_repo=repos["device_command"],
+        device_event_publisher=device_event_publisher,
+    )
+
+
+def get_device_presence_command_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> DevicePresenceCommandServiceImpl:
+    """Obtener servicio de presencia de Device."""
+    repos = get_device_repositories(db)
+    device_event_publisher = None
+    if request is not None:
+        device_event_publisher = getattr(request.app.state, "device_event_publisher", None)
+    return DevicePresenceCommandServiceImpl(
+        device_repo=repos["device"],
+        assignment_repo=repos["assignment"],
+        device_event_publisher=device_event_publisher,
     )
 
 
@@ -169,6 +241,86 @@ def get_space_command_service(
     )
 
 
+def get_telemetry_command_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> TelemetryCommandServiceImpl:
+    repos = get_device_repositories(db)
+    telemetry_repo = get_telemetry_repository(db)
+    alert_incident_repo = get_alert_incident_repository(db)
+    outbox_repo = get_integration_outbox_repository(db)
+    device_event_publisher = None
+    alert_incident_service = None
+    if request is not None:
+        device_event_publisher = getattr(request.app.state, "device_event_publisher", None)
+        alert_incident_service = getattr(request.app.state, "alert_incident_service", None)
+    if alert_incident_service is None:
+        alert_incident_service = AlertIncidentServiceImpl(
+            assignment_repo=repos["assignment"],
+            alert_incident_repo=alert_incident_repo,
+            outbox_repo=outbox_repo,
+        )
+    return TelemetryCommandServiceImpl(
+        device_repo=repos["device"],
+        assignment_repo=repos["assignment"],
+        telemetry_repo=telemetry_repo,
+        device_event_publisher=device_event_publisher,
+        alert_incident_service=alert_incident_service,
+    )
+
+
+def get_alert_incident_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AlertIncidentServiceImpl:
+    repos = get_device_repositories(db)
+    alert_incident_repo = get_alert_incident_repository(db)
+    outbox_repo = get_integration_outbox_repository(db)
+    return AlertIncidentServiceImpl(
+        assignment_repo=repos["assignment"],
+        alert_incident_repo=alert_incident_repo,
+        outbox_repo=outbox_repo,
+    )
+
+
+def get_subscription_service(db: AsyncSession = Depends(get_db)):
+    from .subscriptions.applications.subscription_service import SubscriptionService
+
+    return SubscriptionService(db)
+
+
+def get_profile_service(db: AsyncSession = Depends(get_db)):
+    from .profile.applications.profile_service import ProfileService
+
+    return ProfileService(db)
+
+
+def get_assistant_provider():
+    from .assistant.infrastructure.deepseek_client import DeepSeekAssistantClient
+
+    return DeepSeekAssistantClient()
+
+
+def get_assistant_chat_service(db: AsyncSession = Depends(get_db), provider=Depends(get_assistant_provider)):
+    from .assistant.applications.chat_service import AssistantChatService
+    from .assistant.infrastructure.inventory_context_reader import SQLInventoryContextReader
+
+    return AssistantChatService(SQLInventoryContextReader(db), provider)
+
+
+def get_wine_autocomplete_service():
+    from .core.config import settings
+    from .inventory_intelligence.applications.wine_autocomplete_service import WineAutocompleteService
+
+    if settings.WINE_AUTOCOMPLETE_PROVIDER == "deepseek":
+        from .inventory_intelligence.infrastructure.deepseek.wine_autocomplete_client import DeepSeekWineAutocompleteClient
+
+        return WineAutocompleteService(DeepSeekWineAutocompleteClient())
+    from .inventory_intelligence.infrastructure.gemini.wine_autocomplete_client import GeminiWineAutocompleteClient
+
+    return WineAutocompleteService(GeminiWineAutocompleteClient())
+
+
 def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
 ) -> int:
@@ -178,6 +330,8 @@ def get_current_user_id(
     try:
         token = credentials.credentials
         payload = decode_token(token)
+        if not payload or payload.get("type") == "refresh":
+            raise ValueError("Invalid access token")
         user_id = payload.get("sub") or payload.get("user_id")
         if user_id is None:
             raise HTTPException(
@@ -210,6 +364,8 @@ def get_current_user_id_optional(
     try:
         token = credentials.credentials
         payload = decode_token(token)
+        if not payload or payload.get("type") == "refresh":
+            return None
         user_id = payload.get("sub") or payload.get("user_id")
         if user_id is not None:
             return int(user_id)
@@ -262,4 +418,43 @@ def get_threshold_context_facade(
     return ThresholdContextFacadeImpl(
         threshold_query_service=threshold_query_service,
         assignment_repo=get_device_repositories(db)["assignment"],
+    )
+
+
+# -------------------------------------------------------------
+# DEPENDENCIAS DEL MÓDULO INVENTORY INTELLIGENCE (AI)
+# -------------------------------------------------------------
+from .inventory_intelligence.domain.services.gemini_service import GeminiService
+from .inventory_intelligence.interfaces.acl import InventoryDataFacade
+from .inventory_intelligence.applications.acl import InventoryDataFacadeImpl
+from .inventory_intelligence.applications.analysis_application_service import AnalysisApplicationService
+
+from .inventory_intelligence.infrastructure.gemini.gemini_client import GeminiClientImpl
+
+
+def get_gemini_client() -> GeminiService:
+    """The adapter initializes Google's SDK only for a nonempty inventory."""
+    return GeminiClientImpl()
+
+
+def get_inventory_data_facade(
+    db: AsyncSession = Depends(get_db),
+    device_query_service: DeviceQueryServiceImpl = Depends(get_device_query_service),
+) -> InventoryDataFacade:
+    """Obtener facade del Anti-Corruption Layer (ACL) para recolectar datos"""
+    return InventoryDataFacadeImpl(
+        wine_cellar_repo=get_wine_cellar_repository(db),
+        wine_inventory_repo=get_wine_inventory_repository(db),
+        device_context_facade=get_device_context_facade(device_query_service),
+    )
+
+
+def get_analysis_application_service(
+    gemini_service: GeminiService = Depends(get_gemini_client),
+    inventory_data_facade: InventoryDataFacade = Depends(get_inventory_data_facade),
+) -> AnalysisApplicationService:
+    """Obtener el caso de uso/servicio de aplicación orquestador de análisis de IA"""
+    return AnalysisApplicationService(
+        gemini_service=gemini_service,
+        inventory_data_facade=inventory_data_facade,
     )

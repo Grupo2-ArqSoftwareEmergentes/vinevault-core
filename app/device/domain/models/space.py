@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from .value_objects import UserId
+from .value_objects.space_access import SpaceType, SubscriptionPlan, SubscriptionStatus
 
 
 class Space(BaseModel):
@@ -11,6 +12,10 @@ class Space(BaseModel):
     name: str = Field(..., min_length=1)
     organization_id: UUID
     owner_user_id: UserId
+    space_type: SpaceType = SpaceType.COLLECTOR
+    subscription_plan: SubscriptionPlan = SubscriptionPlan.FREE
+    subscription_status: SubscriptionStatus = SubscriptionStatus.ACTIVE
+    extra_cellars_allowance: int = Field(default=0, ge=0)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

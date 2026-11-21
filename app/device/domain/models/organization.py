@@ -18,8 +18,5 @@ class Organization(BaseModel):
             raise ValueError("Organization name must not be null or blank")
         self.name = name.strip()
 
-    def get_max_spaces(self) -> int:
-        return 5
-
     def get_max_devices(self) -> int:
         return 10
