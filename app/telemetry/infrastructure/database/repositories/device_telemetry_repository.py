@@ -1,7 +1,8 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, func
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,10 +34,24 @@ class TelemetryRepository:
         result = await self._session.execute(stmt)
         return [orm.to_domain() for orm in result.scalars().all()]
 
-    async def save(self, record: DeviceTelemetryRecord) -> DeviceTelemetryRecord:
+    async def latest_activity(self, assignment_ids: list[UUID]) -> dict[UUID, datetime]:
+        if not assignment_ids:
+            return {}
+        # Batch lookup for legacy records ingested before last_seen was maintained.
+        stmt = select(DeviceTelemetryORM.assignment_id, func.max(DeviceTelemetryORM.occurred_at)).where(
+            DeviceTelemetryORM.assignment_id.in_(assignment_ids),
+            DeviceTelemetryORM.occurred_at <= datetime.now(timezone.utc).replace(tzinfo=None),
+        ).group_by(DeviceTelemetryORM.assignment_id)
+        return dict((await self._session.execute(stmt)).all())
+
+    async def commit(self) -> None:
+        await self._session.commit()
+
+    async def save(self, record: DeviceTelemetryRecord, *, auto_commit: bool = True) -> DeviceTelemetryRecord:
         orm = await self._session.merge(DeviceTelemetryORM.from_domain(record))
         await self._session.flush()
-        await self._session.commit()
+        if auto_commit:
+            await self._session.commit()
         stmt = (
             select(DeviceTelemetryORM)
             .where(DeviceTelemetryORM.id == orm.id)

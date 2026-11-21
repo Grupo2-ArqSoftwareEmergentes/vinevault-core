@@ -40,7 +40,7 @@ class TelemetryCommandServiceImpl:
         if device is None:
             raise ValueError("Device not found")
 
-        assignment = await self._assignment_repo.find_by_device_id(device.id)
+        assignment = await self._assignment_repo.find_by_device_id(device.id, for_update=True)
         occurred_at = command.occurred_at or datetime.utcnow()
         record = DeviceTelemetryRecord(
             device=device,
@@ -50,7 +50,12 @@ class TelemetryCommandServiceImpl:
             payload=jsonable_encoder(command.payload),
             occurred_at=occurred_at,
         )
-        saved = await self._telemetry_repo.save(record)
+        if assignment is not None:
+            assignment.record_activity(occurred_at)
+            await self._assignment_repo.save(assignment, auto_commit=False)
+        saved = await self._telemetry_repo.save(record, auto_commit=False)
+        # Reading + last activity commit together, also on Kafka ingestion.
+        await self._telemetry_repo.commit()
         if self._alert_incident_service is not None:
             await self._alert_incident_service.evaluate_telemetry(saved, assignment=assignment)
         if publish_event and self._device_event_publisher is not None:

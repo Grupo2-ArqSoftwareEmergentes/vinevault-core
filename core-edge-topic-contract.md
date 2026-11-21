@@ -21,6 +21,8 @@ Este documento resume lo que el `edge` espera recibir y enviar por Kafka para qu
 
 ## Reglas de interoperabilidad
 
+- La conectividad visible en Core se evalúa por actividad UTC de hasta 5 minutos (`is_online` en REST de usuario y respuesta de presencia). Telemetría REST y `vinevault.device.telemetry.recorded` actualizan la última actividad mediante el mismo servicio. RSSI bajo no significa desconexión. Los eventos conservan sus campos actuales, sin exigir cambios al publicador Edge. La intención explícita STANDBY de Core bloquea la reactivación por telemetría/presencia hasta un comando WAKE y nueva actividad; no confundir el estado operativo del evento con el booleano de frescura calculado al consultar.
+
 - Los permisos de usuarios del Core se validan ahora por membresía/rol del espacio. Esto no cambia la autenticación API-key del Edge ni los campos Kafka de propietario existentes, que siguen siendo metadatos legacy y no una autorización de usuario.
 
 - El edge acepta algunos payloads en `snake_case` y también en `camelCase`, especialmente en provisioning e incidents.

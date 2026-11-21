@@ -28,11 +28,11 @@ class DevicePresenceCommandServiceImpl:
         assignment = None
 
         if command.device_id is not None:
-            assignment = await self._assignment_repo.find_by_device_id(command.device_id)
+            assignment = await self._assignment_repo.find_by_device_id(command.device_id, for_update=True)
         elif command.hardware_id is not None:
             device = await self._device_repo.find_by_hardware_id(command.hardware_id.value)
             if device is not None:
-                assignment = await self._assignment_repo.find_by_device_id(device.id)
+                assignment = await self._assignment_repo.find_by_device_id(device.id, for_update=True)
 
         if assignment is None:
             logger.warning(

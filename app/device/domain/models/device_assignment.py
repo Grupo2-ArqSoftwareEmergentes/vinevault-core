@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from .device import Device
+from .connection import ONLINE_WINDOW, POWER_STATE_KEY, POWER_CHANGED_AT_KEY, utc, activity_time
 from .value_objects import ClaimToken, DeviceStatus, UserId, MetricThreshold, DeviceMetricThresholdConfiguration
 
 
@@ -46,9 +47,46 @@ class DeviceAssignment(BaseModel):
     def update_presence(self, status: DeviceStatus, occurred_at: Optional[datetime] = None) -> None:
         if status is None:
             raise ValueError("Device status must not be null")
-        self.status = status
+        timestamp = activity_time(occurred_at)
+        if self.last_seen_at and timestamp < utc(self.last_seen_at) <= datetime.now(timezone.utc):
+            return  # Out-of-order events cannot regress presence/activity.
+        if self.configuration.get(POWER_STATE_KEY) != 'STANDBY' and self.status not in (DeviceStatus.MAINTENANCE, DeviceStatus.DECOMMISSIONED):
+            self.status = status
         if status != DeviceStatus.OFFLINE:
-            self.last_seen_at = self._to_naive_utc(occurred_at) or datetime.utcnow()
+            self.last_seen_at = self._to_naive_utc(timestamp)
+
+    def record_activity(self, occurred_at: datetime | None = None) -> None:
+        timestamp = activity_time(occurred_at)
+        if self.last_seen_at and timestamp < utc(self.last_seen_at) <= datetime.now(timezone.utc):
+            return
+        self.last_seen_at = self._to_naive_utc(timestamp)
+        if self.status in (DeviceStatus.ONLINE, DeviceStatus.OFFLINE) and self.configuration.get(POWER_STATE_KEY) != 'STANDBY':
+            self.status = DeviceStatus.ONLINE
+
+    def request_power(self, command_type: str, now: datetime | None = None) -> None:
+        if command_type not in ('STANDBY', 'WAKE'):
+            return
+        self.configuration[POWER_STATE_KEY] = command_type
+        self.configuration[POWER_CHANGED_AT_KEY] = activity_time(now).isoformat()
+        self.status = DeviceStatus.STANDBY if command_type == 'STANDBY' else DeviceStatus.OFFLINE
+
+    def connection(self, last_telemetry_at: datetime | None = None, now: datetime | None = None) -> tuple[DeviceStatus, bool, datetime | None]:
+        current = utc(now) or datetime.now(timezone.utc)
+        times = [utc(value) for value in (self.last_seen_at, last_telemetry_at) if value is not None and utc(value) <= current]
+        seen = max(times, default=None)
+        blocked = self.status in (DeviceStatus.STANDBY, DeviceStatus.MAINTENANCE, DeviceStatus.DECOMMISSIONED) or self.configuration.get(POWER_STATE_KEY) == 'STANDBY'
+        changed = self.configuration.get(POWER_CHANGED_AT_KEY)
+        try:
+            after_wake = not changed or (seen is not None and seen >= utc(datetime.fromisoformat(changed)))
+        except (TypeError, ValueError):
+            after_wake = False  # Malformed control metadata fails closed.
+        online = bool(not blocked and seen and current - seen <= ONLINE_WINDOW and after_wake)
+        status = self.status
+        if self.configuration.get(POWER_STATE_KEY) == 'STANDBY':
+            status = DeviceStatus.STANDBY
+        elif status in (DeviceStatus.ONLINE, DeviceStatus.OFFLINE):
+            status = DeviceStatus.ONLINE if online else DeviceStatus.OFFLINE
+        return status, online, seen
 
     def mark_online(self) -> None:
         self.status = DeviceStatus.ONLINE

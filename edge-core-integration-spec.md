@@ -52,6 +52,14 @@ Actualización multi-tenant: el acceso de usuarios a espacios, cavas, dispositiv
 
 ### Devices
 
+#### Conectividad por actividad UTC
+
+Listado, detalle y `/devices/{id}/status` agregan `is_online` y devuelven `last_seen_at` con zona UTC (`Z`). Una actividad válida (telemetría o heartbeat) de hasta **5 minutos** cuenta como conexión, con independencia del RSSI, SSID o `wifi_status`. Los estados ONLINE/OFFLINE de respuesta se evalúan al leer, por lo que una asignación ONLINE almacenada también caduca sin un job de fondo. STANDBY, MAINTENANCE y DECOMMISSIONED bloquean conectividad. ERROR conserva su estado operativo; `is_online` es independiente del diagnóstico del hardware.
+
+La ingesta REST `/api/v1/edges/devices/telemetry` y el consumidor Kafka usan el mismo servicio: guardan lectura y última actividad juntos, bloqueando la asignación para no perder una orden de apagado concurrente. Fechas naive son UTC, offsets se convierten a UTC y actividad futura se limita al reloj Core. Eventos atrasados no hacen retroceder `last_seen_at`. Lecturas legacy sin `last_seen_at` se consideran mediante una consulta agregada por asignación, sin N+1 ni mezclar una asignación anterior del sensor.
+
+Un POST de comando STANDBY guarda la intención explícita en `configuration["control.power_state"]` y su fecha en `control.power_changed_at`, en la misma transacción que el comando. Lecturas/heartbeats posteriores no reactivan ese sensor. WAKE levanta el bloqueo, pero solo actividad posterior a WAKE confirma conexión; enviar el comando no demuestra que haya despertado. La intención persiste incluso si falla la entrega; el usuario puede corregirla con una nueva orden WAKE. No se añade migración ni se modifica el formato Kafka. Edge REST sigue autenticado con su Bearer API key.
+
 - `GET /api/v1/devices?space_id={spaceId}&page={page}&size={size}`
   - Lista devices de un `space` perteneciente al usuario autenticado.
   - Requiere `Authorization: Bearer <jwt>`.

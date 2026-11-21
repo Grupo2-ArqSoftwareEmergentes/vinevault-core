@@ -14,6 +14,7 @@ class DeviceResponse(BaseModel):
     serial_number: str
     name: str
     status: DeviceStatus
+    is_online: bool = False
     space_id: Optional[UUID] = None
     owner_user_id: Optional[int] = None
     configuration: Dict[str, str] = Field(default_factory=dict)
@@ -26,8 +27,9 @@ class DeviceResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
     @classmethod
-    def from_assignment(cls, assignment: DeviceAssignment) -> "DeviceResponse":
+    def from_assignment(cls, assignment: DeviceAssignment, last_telemetry_at: datetime | None = None) -> "DeviceResponse":
         device = assignment.device
+        status, online, seen = assignment.connection(last_telemetry_at)
         # Build thresholds
         thresholds = []
         from app.device.domain.models.value_objects import MetricThreshold, DeviceMetricThresholdConfiguration
@@ -54,7 +56,8 @@ class DeviceResponse(BaseModel):
             id=device.id,
             serial_number=device.serial_number,
             name=device.name,
-            status=assignment.status,
+            status=status,
+            is_online=online,
             space_id=assignment.space_id,
             owner_user_id=assignment.owner_user_id.user_id if assignment.owner_user_id else None,
             configuration=assignment.configuration,
@@ -62,7 +65,7 @@ class DeviceResponse(BaseModel):
             hardware_id=device.hardware_id.value,
             device_type=device.device_type.value,
             activated_at=assignment.activated_at,
-            last_seen_at=assignment.last_seen_at,
+            last_seen_at=seen,
             created_at=assignment.created_at,
             updated_at=assignment.updated_at
         )

@@ -37,13 +37,15 @@ async def list_devices(
     user_id: int = Depends(get_current_user_id),
     assignment_repo = Depends(get_device_assignment_repository),
     space_repo = Depends(get_space_repository),
+    telemetry_repo = Depends(get_telemetry_repository),
 ) -> DeviceListResponse:
     space = await space_repo.find_by_id(space_id)
     if not space:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Space not found")
 
     assignments, total = await assignment_repo.find_by_space_id(space_id, page=page, size=size)
-    items = [DeviceResponse.from_assignment(assignment) for assignment in assignments]
+    activity = await telemetry_repo.latest_activity([assignment.id for assignment in assignments])
+    items = [DeviceResponse.from_assignment(assignment, activity.get(assignment.id)) for assignment in assignments]
     return DeviceListResponse(items=items, page=page, size=size, total=total)
 
 
@@ -94,12 +96,14 @@ async def claim_device(
 async def get_device(
     device_id: UUID,
     query_service: DeviceQueryServiceImpl = Depends(get_device_query_service),
+    telemetry_repo = Depends(get_telemetry_repository),
 ) -> DeviceResponse:
     """Get device by ID"""
     assignment = await query_service.find_assignment_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    return DeviceResponse.from_assignment(assignment)
+    activity = await telemetry_repo.latest_activity([assignment.id])
+    return DeviceResponse.from_assignment(assignment, activity.get(assignment.id))
 
 
 @router.get("/{device_id}/status")
@@ -107,6 +111,7 @@ async def get_device_status(
     device_id: UUID,
     user_id: int = Depends(get_current_user_id),
     query_service: DeviceQueryServiceImpl = Depends(get_device_query_service),
+    telemetry_repo = Depends(get_telemetry_repository),
 ) -> DeviceStatusResponse:
     """Get current device status"""
     assignment = await query_service.find_assignment_by_device_id(device_id)
@@ -114,11 +119,8 @@ async def get_device_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     
     
-    return DeviceStatusResponse(
-        device_id=assignment.device.id,
-        status=assignment.status,
-        last_seen_at=assignment.last_seen_at
-    )
+    activity = await telemetry_repo.latest_activity([assignment.id])
+    return DeviceStatusResponse.from_assignment(assignment, activity.get(assignment.id))
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -231,7 +233,7 @@ async def create_device_command(
     assignment_repo = Depends(get_device_assignment_repository),
     command_repo = Depends(get_device_command_repository),
 ) -> DeviceCommandResponse:
-    assignment = await assignment_repo.find_by_device_id(device_id)
+    assignment = await assignment_repo.find_by_device_id(device_id, for_update=True)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
 
@@ -240,6 +242,9 @@ async def create_device_command(
         type=request.type,
         payload=request.payload,
     )
+    assignment.request_power(request.type.value)
+    if request.type.value in ('STANDBY', 'WAKE'):
+        await assignment_repo.save(assignment, auto_commit=False)
     saved = await command_repo.save(command)
     device_event_publisher = getattr(http_request.app.state, "device_event_publisher", None)
     if device_event_publisher is not None:
