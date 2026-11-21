@@ -21,6 +21,8 @@ Este documento resume lo que el `edge` espera recibir y enviar por Kafka para qu
 
 ## Reglas de interoperabilidad
 
+- Las alertas se evalúan por asignación/espacio aun sin cava. La nueva consulta REST `GET /api/v1/alerts?space_id={UUID}` enriquece la asociación actual de cava y localiza mensajes sin alterar el payload del topic de alertas; los consumidores Edge no requieren cambios.
+
 - `PUT /api/v1/devices/{id}/cellar` cambia o elimina únicamente la asociación de cava en Core. No desasigna el sensor de su espacio ni cambia API keys, estado operativo o payloads de provisioning/comandos. No se requieren cambios en el publicador/consumidor Edge por el selector rápido del frontend.
 
 - La selección opcional de cava en `/devices/claim` y los campos REST `cellar_id`/`cellar_name` son metadatos de usuario de Core. La vinculación queda en `wine_cellars.device_id` y no añade campos obligatorios ni cambia el esquema de los eventos de provisioning/comandos/telemetría. Edge no necesita una modificación para este flujo.

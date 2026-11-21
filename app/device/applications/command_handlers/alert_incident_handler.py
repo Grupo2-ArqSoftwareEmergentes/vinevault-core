@@ -70,6 +70,8 @@ class AlertIncidentServiceImpl:
             active_incident = await self._alert_incident_repo.find_active_by_device_id_and_threshold_metric(
                 record.device.id,
                 rule.threshold_metric.value,
+                assignment_id=assignment.id,
+                space_id=assignment.space_id,
             )
 
             if breached:
