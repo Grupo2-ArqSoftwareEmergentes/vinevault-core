@@ -22,8 +22,10 @@ from app.dependencies import (
     get_space_repository,
     get_device_command_repository,
     get_telemetry_repository,
+    get_device_cellar_acl,
 )
 from app.telemetry.interfaces.rest.resources import TelemetryRecordResponse
+from app.wine_cellar.interfaces.acl import CellarDeviceLinkError
 
 
 router = APIRouter(prefix="/api/v1/devices", tags=["Devices"])
@@ -38,6 +40,7 @@ async def list_devices(
     assignment_repo = Depends(get_device_assignment_repository),
     space_repo = Depends(get_space_repository),
     telemetry_repo = Depends(get_telemetry_repository),
+    cellar_acl = Depends(get_device_cellar_acl),
 ) -> DeviceListResponse:
     space = await space_repo.find_by_id(space_id)
     if not space:
@@ -45,7 +48,8 @@ async def list_devices(
 
     assignments, total = await assignment_repo.find_by_space_id(space_id, page=page, size=size)
     activity = await telemetry_repo.latest_activity([assignment.id for assignment in assignments])
-    items = [DeviceResponse.from_assignment(assignment, activity.get(assignment.id)) for assignment in assignments]
+    links = await cellar_acl.links_for_devices([assignment.device.id for assignment in assignments], space_id)
+    items = [DeviceResponse.from_assignment(assignment, activity.get(assignment.id), cellar=links.get(assignment.device.id)) for assignment in assignments]
     return DeviceListResponse(items=items, page=page, size=size, total=total)
 
 
@@ -74,16 +78,21 @@ async def claim_device(
     request: ClaimDeviceRequest,
     user_id: int = Depends(get_current_user_id),
     service: DeviceCommandServiceImpl = Depends(get_device_command_service),
+    cellar_acl = Depends(get_device_cellar_acl),
 ) -> DeviceResponse:
     """Claim a device into a user-owned space"""
     try:
         command = ClaimDeviceCommand(
             claim_token=request.claim_token,
             space_id=request.space_id,
-            user_id=user_id
+            user_id=user_id,
+            cellar_id=request.cellar_id,
         )
         assignment = await service.handle_claim_device(command)
-        return DeviceResponse.from_assignment(assignment)
+        links = await cellar_acl.links_for_devices([assignment.device.id], assignment.space_id)
+        return DeviceResponse.from_assignment(assignment, cellar=links.get(assignment.device.id))
+    except CellarDeviceLinkError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except PermissionError as e:
@@ -97,13 +106,15 @@ async def get_device(
     device_id: UUID,
     query_service: DeviceQueryServiceImpl = Depends(get_device_query_service),
     telemetry_repo = Depends(get_telemetry_repository),
+    cellar_acl = Depends(get_device_cellar_acl),
 ) -> DeviceResponse:
     """Get device by ID"""
     assignment = await query_service.find_assignment_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     activity = await telemetry_repo.latest_activity([assignment.id])
-    return DeviceResponse.from_assignment(assignment, activity.get(assignment.id))
+    links = await cellar_acl.links_for_devices([assignment.device.id], assignment.space_id)
+    return DeviceResponse.from_assignment(assignment, activity.get(assignment.id), cellar=links.get(assignment.device.id))
 
 
 @router.get("/{device_id}/status")

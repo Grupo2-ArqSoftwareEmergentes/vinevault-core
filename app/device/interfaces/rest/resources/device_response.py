@@ -16,6 +16,8 @@ class DeviceResponse(BaseModel):
     status: DeviceStatus
     is_online: bool = False
     space_id: Optional[UUID] = None
+    cellar_id: UUID | None = None
+    cellar_name: str | None = None
     owner_user_id: Optional[int] = None
     configuration: Dict[str, str] = Field(default_factory=dict)
     thresholds: List[DeviceThresholdResponse] = Field(default_factory=list)
@@ -27,7 +29,7 @@ class DeviceResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
     @classmethod
-    def from_assignment(cls, assignment: DeviceAssignment, last_telemetry_at: datetime | None = None) -> "DeviceResponse":
+    def from_assignment(cls, assignment: DeviceAssignment, last_telemetry_at: datetime | None = None, *, cellar: tuple[UUID, str] | None = None) -> "DeviceResponse":
         device = assignment.device
         status, online, seen = assignment.connection(last_telemetry_at)
         # Build thresholds
@@ -59,6 +61,8 @@ class DeviceResponse(BaseModel):
             status=status,
             is_online=online,
             space_id=assignment.space_id,
+            cellar_id=cellar[0] if cellar else None,
+            cellar_name=cellar[1] if cellar else None,
             owner_user_id=assignment.owner_user_id.user_id if assignment.owner_user_id else None,
             configuration=assignment.configuration,
             thresholds=thresholds,

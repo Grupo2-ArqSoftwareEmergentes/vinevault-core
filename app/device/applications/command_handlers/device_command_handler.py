@@ -14,6 +14,7 @@ from app.device.infrastructure.database.repositories import (
 )
 from app.device.infrastructure.kafka import KafkaDeviceEventPublisher
 from app.device.applications.space_authorization_service import SpaceAuthorizationService, SpacePermission
+from app.wine_cellar.interfaces.acl import DeviceCellarACL
 
 
 class DeviceCommandServiceImpl(DeviceCommandService):
@@ -25,6 +26,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         device_command_repo=None,
         device_event_publisher: KafkaDeviceEventPublisher | None = None,
         space_authorization: SpaceAuthorizationService | None = None,
+        cellar_acl: DeviceCellarACL | None = None,
     ):
         self._device_repo = device_repo
         self._assignment_repo = assignment_repo
@@ -32,6 +34,7 @@ class DeviceCommandServiceImpl(DeviceCommandService):
         self._device_command_repo = device_command_repo
         self._device_event_publisher = device_event_publisher
         self._space_authorization = space_authorization
+        self._cellar_acl = cellar_acl
 
     async def _require_space_configuration(self, space_id: UUID | None, user_id: int) -> None:
         if space_id is None or self._space_authorization is None:
@@ -107,8 +110,13 @@ class DeviceCommandServiceImpl(DeviceCommandService):
             raise ValueError("Space not found")
         await self._require_space_configuration(space.id, command.user_id)
 
+        cellar = None
+        if command.cellar_id is not None:
+            if self._cellar_acl is None:
+                raise ValueError("Cellar association is not configured")
+            cellar = await self._cellar_acl.prepare_link(command.cellar_id, command.space_id)
         # Find assignment by claim token
-        assignment = await self._assignment_repo.find_by_claim_token(command.claim_token)
+        assignment = await self._assignment_repo.find_by_claim_token(command.claim_token, for_update=True)
         if not assignment:
             raise ValueError("Invalid claim token")
 
@@ -117,7 +125,10 @@ class DeviceCommandServiceImpl(DeviceCommandService):
 
         # Claim the device
         assignment.claim_to_space(command.space_id, UserId(user_id=command.user_id))
-        saved = await self._assignment_repo.save(assignment)
+        saved = await self._assignment_repo.save(assignment, auto_commit=False)
+        if cellar is not None:
+            await self._cellar_acl.link(cellar, saved.device.id)
+        await self._assignment_repo.commit()
         await self._publish_assignment_changed(saved, change_type="UPDATED")
         return saved
 

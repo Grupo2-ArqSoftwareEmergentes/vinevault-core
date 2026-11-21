@@ -133,6 +133,11 @@ def get_telemetry_repository(db: AsyncSession = Depends(get_db)) -> TelemetryRep
     return TelemetryRepository(db)
 
 
+def get_device_cellar_acl(db: AsyncSession = Depends(get_db)):
+    from app.wine_cellar.interfaces.acl import DeviceCellarACL
+    return DeviceCellarACL(db)
+
+
 def get_device_command_service(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -142,6 +147,7 @@ def get_device_command_service(
     device_event_publisher = None
     if request is not None:
         device_event_publisher = getattr(request.app.state, "device_event_publisher", None)
+    from app.wine_cellar.interfaces.acl import DeviceCellarACL
     return DeviceCommandServiceImpl(
         device_repo=repos["device"],
         assignment_repo=repos["assignment"],
@@ -149,6 +155,7 @@ def get_device_command_service(
         device_command_repo=repos["device_command"],
         device_event_publisher=device_event_publisher,
         space_authorization=SpaceAuthorizationService(SpaceMemberRepository(db)),
+        cellar_acl=DeviceCellarACL(db),
     )
 
 

@@ -52,6 +52,12 @@ Actualización multi-tenant: el acceso de usuarios a espacios, cavas, dispositiv
 
 ### Devices
 
+#### Asociación opcional de cava al reclamar hardware
+
+`POST /api/v1/devices/claim` acepta `cellar_id: UUID | null` opcional junto a `claim_token` y `space_id`. Omitido/null conserva el contrato anterior: solo asignación al espacio. Con cava, valida pertenencia al mismo espacio y disponibilidad; una cava ocupada o de otro espacio produce 409, inexistente 404, sin consumir el token ni asignar parcialmente el sensor. Un fallo de persistencia revierte ambas escrituras. El bloqueo sigue espacio → cava → asignación para serializar reclamaciones competidoras.
+
+Respuesta de claim, GET listado y GET detalle agregan `cellar_id` y `cellar_name` anulables. La asociación se lee desde `wine_cellars.device_id`, no se duplica en device assignments; renombrar/desvincular una cava se refleja en el siguiente GET. El listado resuelve asociaciones en lote y filtra por el espacio autorizado. `name` sigue siendo el nombre actual del sensor, sin usar `factory_name` como nombre visible. El endpoint de link existente sigue disponible y utiliza el mismo bloqueo para no sustituir una vinculación concurrente. No requiere migración ni cambios en topics/provisioning de Edge.
+
 #### Conectividad por actividad UTC
 
 Listado, detalle y `/devices/{id}/status` agregan `is_online` y devuelven `last_seen_at` con zona UTC (`Z`). Una actividad válida (telemetría o heartbeat) de hasta **5 minutos** cuenta como conexión, con independencia del RSSI, SSID o `wifi_status`. Los estados ONLINE/OFFLINE de respuesta se evalúan al leer, por lo que una asignación ONLINE almacenada también caduca sin un job de fondo. STANDBY, MAINTENANCE y DECOMMISSIONED bloquean conectividad. ERROR conserva su estado operativo; `is_online` es independiente del diagnóstico del hardware.

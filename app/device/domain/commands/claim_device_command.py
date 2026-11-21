@@ -6,6 +6,7 @@ class ClaimDeviceCommand(BaseModel):
     claim_token: str = Field(..., min_length=1)
     space_id: UUID
     user_id: int
+    cellar_id: UUID | None = None
 
     @field_validator('claim_token')
     @classmethod
