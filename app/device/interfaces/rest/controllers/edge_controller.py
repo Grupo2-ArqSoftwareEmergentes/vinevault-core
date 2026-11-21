@@ -63,11 +63,7 @@ async def report_device_presence(
             command_data["occurred_at"] = request.occurred_at
         command = UpdateDevicePresenceStatusCommand(**command_data)
         assignment = await service.handle_update_device_presence_status(command)
-        return DeviceStatusResponse(
-            device_id=assignment.device.id,
-            status=assignment.status,
-            last_seen_at=assignment.last_seen_at,
-        )
+        return DeviceStatusResponse.from_assignment(assignment)
     except ValueError as exc:
         detail = str(exc)
         if detail == "Device assignment not found":

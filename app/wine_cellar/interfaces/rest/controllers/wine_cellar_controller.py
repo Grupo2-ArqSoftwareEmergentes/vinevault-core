@@ -25,6 +25,7 @@ from app.wine_cellar.applications import InventoryExcelError, WineInventoryExcel
 from app.wine_cellar.applications.inventory_excel_service import XLSX_MIME_TYPE
 from app.wine_cellar.applications.inventory_export_service import InventoryExportTooLargeError
 from app.wine_cellar.domain.models import WineCellar
+from app.wine_cellar.interfaces.acl import DeviceCellarACL, CellarDeviceLinkError
 from ..resources import (
     CreateWineCellarRequest,
     CreateWineInventoryItemRequest,
@@ -156,10 +157,15 @@ async def link_device_to_wine_cellar(
     wine_cellar_repo = Depends(get_wine_cellar_repository),
     space_repo = Depends(get_space_repository),
     assignment_repo = Depends(get_device_assignment_repository),
+    db: AsyncSession = Depends(get_db),
 ) -> WineCellarResponse:
     wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
+    try:
+        wine_cellar = await DeviceCellarACL(db).prepare_link(wine_cellar_id, wine_cellar.space_id, device_id=request.device_id)
+    except CellarDeviceLinkError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error))
 
-    device_assignment = await assignment_repo.find_by_device_id(request.device_id)
+    device_assignment = await assignment_repo.find_by_device_id(request.device_id, for_update=True)
     if not device_assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     if device_assignment.space_id != wine_cellar.space_id:
@@ -188,8 +194,13 @@ async def unlink_device_from_wine_cellar(
     user_id: int = Depends(get_current_user_id),
     wine_cellar_repo = Depends(get_wine_cellar_repository),
     space_repo = Depends(get_space_repository),
+    db: AsyncSession = Depends(get_db),
 ):
     wine_cellar = await _get_wine_cellar_for_user(wine_cellar_id, user_id, wine_cellar_repo, space_repo)
+    try:
+        wine_cellar = await DeviceCellarACL(db).prepare_link(wine_cellar_id, wine_cellar.space_id, require_available=False)
+    except CellarDeviceLinkError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error))
     if wine_cellar.device_id != device_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device is not linked to this wine cellar")
 

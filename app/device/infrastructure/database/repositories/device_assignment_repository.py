@@ -21,18 +21,22 @@ class DeviceAssignmentRepository:
         orm = result.scalar_one_or_none()
         return orm.to_domain() if orm else None
 
-    async def find_by_device_id(self, device_id: UUID) -> Optional[DeviceAssignment]:
+    async def find_by_device_id(self, device_id: UUID, *, for_update: bool = False) -> Optional[DeviceAssignment]:
         stmt = select(DeviceAssignmentORM).where(
             DeviceAssignmentORM.device_id == device_id
         ).options(selectinload(DeviceAssignmentORM.device))
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
         return orm.to_domain() if orm else None
 
-    async def find_by_claim_token(self, claim_token: str) -> Optional[DeviceAssignment]:
+    async def find_by_claim_token(self, claim_token: str, *, for_update: bool = False) -> Optional[DeviceAssignment]:
         stmt = select(DeviceAssignmentORM).where(
             DeviceAssignmentORM.claim_token == claim_token
         ).options(selectinload(DeviceAssignmentORM.device))
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await self._session.execute(stmt)
         orm = result.scalar_one_or_none()
         return orm.to_domain() if orm else None
@@ -95,14 +99,18 @@ class DeviceAssignmentRepository:
         result = await self._session.execute(stmt)
         return result.scalars().all()
 
-    async def save(self, assignment: DeviceAssignment) -> DeviceAssignment:
+    async def save(self, assignment: DeviceAssignment, *, auto_commit: bool = True) -> DeviceAssignment:
         orm = await self._session.merge(DeviceAssignmentORM.from_domain(assignment))
         await self._session.flush()
-        await self._session.commit()
+        if auto_commit:
+            await self._session.commit()
         stmt = select(DeviceAssignmentORM).where(DeviceAssignmentORM.id == orm.id).options(selectinload(DeviceAssignmentORM.device))
         result = await self._session.execute(stmt)
         persisted = result.scalar_one()
         return persisted.to_domain()
+
+    async def commit(self) -> None:
+        await self._session.commit()
 
     async def delete(self, assignment: DeviceAssignment) -> None:
         stmt = select(DeviceAssignmentORM).where(DeviceAssignmentORM.id == assignment.id)

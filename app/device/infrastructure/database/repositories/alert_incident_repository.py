@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.device.domain.models import AlertIncident
 from ..models.alert_incident_orm import AlertIncidentORM
+from ..models.device_assignment_orm import DeviceAssignmentORM
 
 
 class AlertIncidentRepository:
@@ -27,6 +28,9 @@ class AlertIncidentRepository:
         self,
         device_id: UUID,
         threshold_metric: str,
+        *,
+        assignment_id: UUID,
+        space_id: UUID | None,
     ) -> Optional[AlertIncident]:
         stmt = (
             select(AlertIncidentORM)
@@ -34,6 +38,8 @@ class AlertIncidentRepository:
                 and_(
                     AlertIncidentORM.device_id == device_id,
                     AlertIncidentORM.threshold_metric == threshold_metric,
+                    AlertIncidentORM.assignment_id == assignment_id,
+                    AlertIncidentORM.space_id == space_id,
                     AlertIncidentORM.status != "RESOLVED",
                 )
             )
@@ -43,6 +49,19 @@ class AlertIncidentRepository:
         result = await self._session.execute(stmt)
         orm = result.scalars().first()
         return orm.to_domain() if orm else None
+
+    async def find_by_space_id(self, space_id: UUID, *, active_only: bool = False) -> List[AlertIncident]:
+        # Never adopt incidents from an earlier assignment of the same hardware.
+        stmt = select(AlertIncidentORM).join(DeviceAssignmentORM, and_(
+            DeviceAssignmentORM.device_id == AlertIncidentORM.device_id,
+            DeviceAssignmentORM.id == AlertIncidentORM.assignment_id,
+            DeviceAssignmentORM.space_id == AlertIncidentORM.space_id,
+        )).where(AlertIncidentORM.space_id == space_id)
+        if active_only:
+            stmt = stmt.where(AlertIncidentORM.status == "ACTIVE")
+        result = await self._session.execute(stmt.options(selectinload(AlertIncidentORM.device)).order_by(
+            AlertIncidentORM.occurred_at.desc(), AlertIncidentORM.id.desc()))
+        return [orm.to_domain() for orm in result.scalars().all()]
 
     async def find_all_by_device_id(self, device_id: UUID) -> List[AlertIncident]:
         stmt = (

@@ -4,9 +4,14 @@ from uuid import UUID
 from app.device.domain.models.value_objects.space_access import SpaceType
 
 
+class ChangeDeviceCellarRequest(BaseModel):
+    cellar_id: UUID | None = Field(..., description="Target cellar, or null to unlink without unclaiming the device")
+
+
 class ClaimDeviceRequest(BaseModel):
     claim_token: str = Field(..., min_length=1, description="One-time claim token")
     space_id: UUID = Field(..., description="Target space owned by the authenticated user")
+    cellar_id: UUID | None = Field(default=None, description="Optional unoccupied cellar in the target space")
 
     @field_validator('claim_token')
     @classmethod

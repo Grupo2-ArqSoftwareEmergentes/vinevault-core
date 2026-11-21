@@ -22,8 +22,11 @@ from app.dependencies import (
     get_space_repository,
     get_device_command_repository,
     get_telemetry_repository,
+    get_device_cellar_acl,
 )
 from app.telemetry.interfaces.rest.resources import TelemetryRecordResponse
+from app.wine_cellar.interfaces.acl import CellarDeviceLinkError
+from ..resources.request_models import ChangeDeviceCellarRequest
 
 
 router = APIRouter(prefix="/api/v1/devices", tags=["Devices"])
@@ -37,13 +40,17 @@ async def list_devices(
     user_id: int = Depends(get_current_user_id),
     assignment_repo = Depends(get_device_assignment_repository),
     space_repo = Depends(get_space_repository),
+    telemetry_repo = Depends(get_telemetry_repository),
+    cellar_acl = Depends(get_device_cellar_acl),
 ) -> DeviceListResponse:
     space = await space_repo.find_by_id(space_id)
     if not space:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Space not found")
 
     assignments, total = await assignment_repo.find_by_space_id(space_id, page=page, size=size)
-    items = [DeviceResponse.from_assignment(assignment) for assignment in assignments]
+    activity = await telemetry_repo.latest_activity([assignment.id for assignment in assignments])
+    links = await cellar_acl.links_for_devices([assignment.device.id for assignment in assignments], space_id)
+    items = [DeviceResponse.from_assignment(assignment, activity.get(assignment.id), cellar=links.get(assignment.device.id)) for assignment in assignments]
     return DeviceListResponse(items=items, page=page, size=size, total=total)
 
 
@@ -72,16 +79,21 @@ async def claim_device(
     request: ClaimDeviceRequest,
     user_id: int = Depends(get_current_user_id),
     service: DeviceCommandServiceImpl = Depends(get_device_command_service),
+    cellar_acl = Depends(get_device_cellar_acl),
 ) -> DeviceResponse:
     """Claim a device into a user-owned space"""
     try:
         command = ClaimDeviceCommand(
             claim_token=request.claim_token,
             space_id=request.space_id,
-            user_id=user_id
+            user_id=user_id,
+            cellar_id=request.cellar_id,
         )
         assignment = await service.handle_claim_device(command)
-        return DeviceResponse.from_assignment(assignment)
+        links = await cellar_acl.links_for_devices([assignment.device.id], assignment.space_id)
+        return DeviceResponse.from_assignment(assignment, cellar=links.get(assignment.device.id))
+    except CellarDeviceLinkError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except PermissionError as e:
@@ -94,12 +106,38 @@ async def claim_device(
 async def get_device(
     device_id: UUID,
     query_service: DeviceQueryServiceImpl = Depends(get_device_query_service),
+    telemetry_repo = Depends(get_telemetry_repository),
+    cellar_acl = Depends(get_device_cellar_acl),
 ) -> DeviceResponse:
     """Get device by ID"""
     assignment = await query_service.find_assignment_by_device_id(device_id)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    return DeviceResponse.from_assignment(assignment)
+    activity = await telemetry_repo.latest_activity([assignment.id])
+    links = await cellar_acl.links_for_devices([assignment.device.id], assignment.space_id)
+    return DeviceResponse.from_assignment(assignment, activity.get(assignment.id), cellar=links.get(assignment.device.id))
+
+
+@router.put("/{device_id}/cellar")
+async def change_device_cellar(
+    device_id: UUID,
+    request: ChangeDeviceCellarRequest,
+    user_id: int = Depends(get_current_user_id),
+    service: DeviceCommandServiceImpl = Depends(get_device_command_service),
+    cellar_acl = Depends(get_device_cellar_acl),
+    telemetry_repo = Depends(get_telemetry_repository),
+) -> DeviceResponse:
+    try:
+        assignment = await service.handle_change_device_cellar(device_id, user_id, request.cellar_id)
+        links = await cellar_acl.links_for_devices([device_id], assignment.space_id)
+        activity = await telemetry_repo.latest_activity([assignment.id])
+        return DeviceResponse.from_assignment(assignment, activity.get(assignment.id), cellar=links.get(device_id))
+    except CellarDeviceLinkError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error))
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error))
 
 
 @router.get("/{device_id}/status")
@@ -107,6 +145,7 @@ async def get_device_status(
     device_id: UUID,
     user_id: int = Depends(get_current_user_id),
     query_service: DeviceQueryServiceImpl = Depends(get_device_query_service),
+    telemetry_repo = Depends(get_telemetry_repository),
 ) -> DeviceStatusResponse:
     """Get current device status"""
     assignment = await query_service.find_assignment_by_device_id(device_id)
@@ -114,11 +153,8 @@ async def get_device_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     
     
-    return DeviceStatusResponse(
-        device_id=assignment.device.id,
-        status=assignment.status,
-        last_seen_at=assignment.last_seen_at
-    )
+    activity = await telemetry_repo.latest_activity([assignment.id])
+    return DeviceStatusResponse.from_assignment(assignment, activity.get(assignment.id))
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -231,7 +267,7 @@ async def create_device_command(
     assignment_repo = Depends(get_device_assignment_repository),
     command_repo = Depends(get_device_command_repository),
 ) -> DeviceCommandResponse:
-    assignment = await assignment_repo.find_by_device_id(device_id)
+    assignment = await assignment_repo.find_by_device_id(device_id, for_update=True)
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
 
@@ -240,6 +276,9 @@ async def create_device_command(
         type=request.type,
         payload=request.payload,
     )
+    assignment.request_power(request.type.value)
+    if request.type.value in ('STANDBY', 'WAKE'):
+        await assignment_repo.save(assignment, auto_commit=False)
     saved = await command_repo.save(command)
     device_event_publisher = getattr(http_request.app.state, "device_event_publisher", None)
     if device_event_publisher is not None:
